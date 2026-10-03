@@ -88,4 +88,15 @@ check("holding steady stays steady", Math.abs(steady.ratio - 1) < 0.05 && steady
   // the user wants *some* understeer on the brakes, but no lock-up: about three quarters of the turn
   check("turning under full brakes: some understeer, no lock-up", hard > coast * 0.65 && hard < coast * 0.88, `heading change in 0.6 s from 72 km/h: coasting ${(coast * 57.3).toFixed(0)} deg, full brakes ${(hard * 57.3).toFixed(0)} deg (${((hard / coast) * 100).toFixed(0)}%)`);
 }
+{ // U-turns: how wide a road a 180 needs (the city's streets are 14 m curb to curb, ~15 m between lampposts)
+  const width = (u0, inp) => {
+    const c = fresh(); c.u = u0; const z0 = c.z; let maxD = 0, turned = 0;
+    run(c, inp, 60 * 5, (t, c) => { if (turned < Math.PI) { turned += Math.abs(c.r) / 60; maxD = Math.max(maxD, Math.abs(c.z - z0)); } });
+    return turned >= Math.PI ? maxD + 2 : Infinity;   // + the car's width
+  };
+  const slow = width(5, { steer: 1, throttle: 0.15, brake: 0 });
+  // brake a moment to load the nose, then feathered gas (40%) at full lock: the rear comes round
+  const power = width(7, (t) => ({ steer: 1, throttle: t < 20 ? 0 : 0.4, brake: t < 20 ? 0.6 : 0 }));
+  check("a U-turn fits the street", slow < 13 && power < 14, `crawling at 18 km/h: ${slow.toFixed(1)} m; brake, then 40% gas from 25 km/h: ${power.toFixed(1)} m`);
+}
 console.log(ok ? "all physics checks pass" : "SOME PHYSICS CHECKS FAILED");

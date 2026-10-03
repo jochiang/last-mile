@@ -25,7 +25,8 @@ export const P = {
   grassV: 20, grassDrag: 450,                 // grass pulls you down toward ~110 km/h at full gas (N per m/s over), it doesn't anchor you
   brakeMax: 1.5, brakeRear: 0.8,              // total brake force in g; the rear gets this much of its share of
                                               // the load (a proportioning valve: the fronts lock first, braking stays stable)
-  steerMax: 0.6, steerSpeed: 15.5,             // lock shrinks with speed, ~what the tyres can use: steerMax / (1 + (u / steerSpeed)^2)
+  steerMax: 0.6, steerSpeed: 15.5,            // lock shrinks with speed, ~what the tyres can use: steerMax / (1 + (u / steerSpeed)^2)
+  lowLock: 0.14,                              // extra lock that fades in below 8 m/s, for tight U-turns
   steerRate: 4,                               // full locks per second: the wheel can't snap, whatever the thumb does
   revForce: 6000, revMax: 8, revHold: 0.35,   // reverse: pull, top speed (m/s), seconds of brake at a standstill to engage
   lockFloor: 0.35,                            // side grip left on a locked or spinning axle
@@ -60,7 +61,7 @@ export function stepCar2(c, inp, tr, p = P) {
 /** The car on its own: steering, pedals, tyres, weight transfer, integration. */
 export function dynamics(c, inp, p = P) {
   const L = p.a + p.b, W = p.m * p.g, dt = DT / p.sub;
-  const lock = p.steerMax / (1 + (c.u / p.steerSpeed) ** 2), target = -inp.steer * lock;
+  const lock = p.steerMax / (1 + (c.u / p.steerSpeed) ** 2) + p.lowLock * Math.max(0, 1 - Math.abs(c.u) / 8), target = -inp.steer * lock;
   c.delta += clamp(target - c.delta, -p.steerRate * lock * DT, p.steerRate * lock * DT);
   const og = c.offAmt || 0;   // 0 = on the road, 1 = fully on the grass (blended over the edge)
   const mu = p.mu + (p.muOff - p.mu) * og;

@@ -3,14 +3,15 @@
 // restaurants, customer addresses, and the dressing the renderer draws.
 //
 // Streets run along x = X(k) and z = X(k), k = 0..6. A block (row r, col c) spans
-// x in [X(c), X(c+1)], z in [X(r), X(r+1)]. From a street's centreline: road to 5 m, sidewalk to
-// 8 m, then the block's buildings. Rows run north (-z) to south (+z).
+// x in [X(c), X(c+1)], z in [X(r), X(r+1)]. From a street's centreline: road to 7 m (four lanes),
+// sidewalk to 10 m, then the block's buildings. Rows run north (-z) to south (+z).
 //
 // The GPS only knows the streets. Alleys, the parking lot and the park are the shortcuts a player
 // learns.
 
 export const PITCH = 58, NB = 6, ORIGIN = -3 * PITCH;
-export const CURB = 5, LINE = 8, LANE = 2.5;
+// streets widened 2026-10-03 (were 10 m curb to curb): room for a power-oversteer U-turn
+export const CURB = 7, LINE = 10, LANE = 3.5, POLE = 7.6;
 export const X = (k) => ORIGIN + k * PITCH;
 
 // B buildings, P park (neighbouring parks merge across the street), L parking lot,
@@ -170,7 +171,7 @@ export function buildCity(seed = 7) {
     const dx = (e.bx - e.ax) / e.len, dz = (e.bz - e.az) / e.len;
     for (let s = 12; s < e.len - 11; s += 16) {
       for (const side of [-1, 1]) {
-        const p = { x: e.ax + dx * s - dz * side * 6.6, z: e.az + dz * s + dx * side * 6.6, r: 0.25, kind: "pole", broken: false };
+        const p = { x: e.ax + dx * s - dz * side * POLE, z: e.az + dz * s + dx * side * POLE, r: 0.25, kind: "pole", broken: false };
         poles.push(p); circles.push(p);
       }
     }

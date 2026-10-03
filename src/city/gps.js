@@ -85,8 +85,8 @@ export function nextTurn(city, rt) {
   return { dir: "arrive", dist: d + Math.hypot(bx - ax, bz - az), onto: "" };
 }
 
-/** Target speed for a turn of this many radians (a 90 degree street corner ~ 40 km/h). */
-const cornerSpeed = (ang) => 4 + 7 * Math.pow(Math.max(0, Math.PI - ang) / (Math.PI / 2), 1.3);
+/** Target speed for a turn of this many radians (a 90 degree street corner ~ 47 km/h on the wide streets). */
+const cornerSpeed = (ang) => 5 + 8 * Math.pow(Math.max(0, Math.PI - ang) / (Math.PI / 2), 1.3);
 export const STOP_SPEED = 2.5, PLAN_DECEL = 9;   // the stop at the end; the braking rate the plan assumes (m/s^2)
 
 /** Speed limits along a route: [{ s, v }] at each turn and at the stop, s = metres from points[0]. */

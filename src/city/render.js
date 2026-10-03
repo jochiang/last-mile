@@ -77,6 +77,8 @@ function buildStatic(city) {
     const dx = (e.bx - e.ax) / e.len, dz = (e.bz - e.az) / e.len, h = Math.atan2(dx, dz);
     for (let s = LINE + 2; s < e.len - LINE - 2; s += 6) {
       P.push(colored(new THREE.BoxGeometry(0.18, 0.01, 3).rotateY(h).translate(e.ax + dx * (s + 1.5), 0.02, e.az + dz * (s + 1.5)), C.dash));
+      // white lane lines either side: more stripes flicking past
+      for (const w of [-3.5, 3.5]) P.push(colored(new THREE.BoxGeometry(0.14, 0.01, 2).rotateY(h).translate(e.ax + dx * (s + 1) - dz * w, 0.02, e.az + dz * (s + 1) + dx * w), C.white));
     }
     for (const [s, sgn] of [[LINE + 0.5, 1], [e.len - LINE - 0.5, -1]]) {
       // zebra stripes across the road just outside the intersection
