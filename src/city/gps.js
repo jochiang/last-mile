@@ -85,7 +85,7 @@ export function nextTurn(city, rt) {
         const mx = (bx + cx) / 2, mz = (bz + cz) / 2;
         return Math.min(e.ax, e.bx) - 1 <= mx && mx <= Math.max(e.ax, e.bx) + 1 && Math.min(e.az, e.bz) - 1 <= mz && mz <= Math.max(e.az, e.bz) + 1;
       });
-      return { dir: Math.abs(turn) > 2.6 ? "uturn" : turn > 0 ? "left" : "right", dist: d, onto: onto ? onto.name : "" };
+      return { dir: Math.abs(turn) > 2.6 ? "uturn" : turn > 0 ? "left" : "right", dist: d, onto: onto ? onto.name : "", at: [bx, bz] };
     }
   }
   const [ax, az] = pts[pts.length - 2], [bx, bz] = pts[pts.length - 1];

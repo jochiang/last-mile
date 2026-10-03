@@ -4,6 +4,7 @@ import { route, nextTurn, speedPlan, allowedSpeed, alongRoute } from "./gps.js";
 import { makeCityCar, stepCityCar, resetCityCar } from "./world.js";
 import { makeShift, stepShift, rating, avgRating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
+import { createAudio } from "./audio.js";
 import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON } from "./run.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
 import { DT } from "../car.js";
@@ -14,6 +15,8 @@ const settings = loadSettings();
 settings.model = "pedals";
 if (settings.mode === "tilt") settings.mode = "drag";
 const input = createInput($("zone"), { drift: $("drift"), brake: $("brake"), pedal: $("pedal") }, settings);
+const audio = createAudio();
+if (settings.volume === undefined) settings.volume = 0.8;
 const view = createCityRenderer($("c"), city, { night: settings.night !== false });
 
 // the run in progress (saved between sessions) and the best run so far
@@ -23,6 +26,7 @@ try { const s = localStorage.getItem(RUN_KEY); if (s) run = loadRun(s); } catch 
 try { best = JSON.parse(localStorage.getItem(BEST_KEY)) || best; } catch {}
 const persist = () => { try { run && !run.over ? localStorage.setItem(RUN_KEY, saveRun(run)) : localStorage.removeItem(RUN_KEY); } catch {} };
 
+let announced = "";
 let car, shift, carP, rt = null, rtT = 0, running = false, inShift = false, acc = 0, last = performance.now(), toastT = 0;
 let prev, inp = { steer: 0, throttle: 0, brake: 0 };
 const events = [];
@@ -67,9 +71,11 @@ function tick() {
 }
 
 function onShiftEvent(e) {
-  if (e.type === "order") { rt = null; toast(`NEW ORDER`, `${e.order.item} from ${e.order.rest.name}`); }
-  if (e.type === "pickup") { rt = null; toast("PICKED UP", `→ ${e.order.cust.label}`); }
+  if (e.type === "order") { rt = null; toast(`NEW ORDER`, `${e.order.item} from ${e.order.rest.name}`); audio.sfx("ping"); }
+  if (e.type === "pickup") { rt = null; toast("PICKED UP", `→ ${e.order.cust.label}`); audio.sfx("pickup"); }
   if (e.type === "delivered") {
+    audio.sfx("kaching");
+    if (e.late > 0 || e.stars < 4) audio.sfx("sad");
     toast(`+$${e.earned.toFixed(2)}`, `${"★".repeat(e.stars)}${"☆".repeat(5 - e.stars)}  ${e.late > 0 ? `${e.late.toFixed(0)}s late` : `tip $${e.tip.toFixed(2)}`}${e.quality < 0.99 ? `  · ${Math.round((1 - e.quality) * 100)}% spilled` : ""}`);
   }
 }
@@ -108,6 +114,11 @@ function hud() {
     $("tdist").textContent = nt.dist < 15 ? (nt.dir === "arrive" ? "HERE" : "NOW") : `${Math.round(nt.dist / 10) * 10} m`;
     $("tonto").textContent = nt.dir === "arrive" ? (o && o.phase === "pickup" ? o.rest.name : o ? o.cust.label : "") : nt.onto ? `onto ${nt.onto}` : "";
     $("turn").classList.toggle("soon", nt.dist < 45);
+    // a chime once per turn as it comes up, panned to the side you'll turn to
+    if (nt.at && nt.dist < 45 && nt.dist > 8) {
+      const key = `${Math.round(nt.at[0])},${Math.round(nt.at[1])}`;
+      if (key !== announced) { announced = key; audio.sfx("turn", nt.dir === "left" ? -0.8 : nt.dir === "right" ? 0.8 : 0); }
+    }
   } else $("turn").style.display = "none";
   const kmh = Math.abs(car.u) * 3.6;
   $("kmh").firstChild.textContent = `${Math.round(kmh)} `;
@@ -247,6 +258,13 @@ function loop(now) {
     const sCar = alongRoute(rt, car.x, car.z);
     view.colorRoute(Math.hypot(car.vx, car.vz), sCar, (plan, s) => (s < sCar ? Infinity : allowedSpeed(plan, s)));
   }
+  for (const e of events) {
+    if (e.type === "wall") audio.sfx("thump", e.speed);
+    if (e.type === "pole") audio.sfx("clang");
+    if (e.type === "reset") audio.sfx("reset");
+  }
+  audio.update({ running, speed: pose.speed, u: car.u, throttle: inp.throttle || 0, brake: inp.brake || 0, slipF: car.slipF, slipR: car.slipR, off: car.off, reverse: car.reverse, cond: car.cond }, dt);
+  if (running && o) { audio.clock(o.left); if (o.kind === "drink") audio.spill(o.spill); }
   view.frame(pose, dt, events, {
     route: running && rt,
     pickup: o && o.phase === "pickup" ? { x: o.rest.x, z: o.rest.z, inZone: o.inZone } : null,
@@ -326,6 +344,8 @@ function renderSettings() {
   $("dragCurve").value = settings.dragCurve; $("dragCurveV").textContent = "×" + (+settings.dragCurve).toFixed(1);
   $("pedalH").value = settings.pedalH; $("pedalHV").textContent = settings.pedalH + "px";
   $("pedal").style.height = settings.pedalH + "px";
+  $("volume").value = settings.volume; $("volumeV").textContent = Math.round(settings.volume * 100) + "%";
+  audio.setVolume(settings.volume);
 }
 $("screen").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-act]");
@@ -337,9 +357,9 @@ $("screen").addEventListener("click", (e) => {
   if (act === "resume") { start(); return; }
   if (act === "abandon") { shift.over = "abandoned"; running = false; endShift(); return; }
   if (act === "title") { show("title"); return; }
-  if (act === "buy") buy(run, b.dataset.id);
-  if (act === "reroll") reroll(run);
-  if (act === "repair") repair(run, +b.dataset.to);
+  if (act === "buy" && buy(run, b.dataset.id)) audio.sfx("buy");
+  if (act === "reroll" && reroll(run)) audio.sfx("tick", false);
+  if (act === "repair" && repair(run, +b.dataset.to)) audio.sfx("repair");
   persist();
   show("garage");
 });
@@ -348,7 +368,7 @@ $("modes").addEventListener("click", (e) => {
   if (!b) return;
   settings.mode = b.dataset.m; saveSettings(settings); renderSettings();
 });
-for (const id of ["dragRange", "dragDead", "dragCurve", "pedalH"]) {
+for (const id of ["dragRange", "dragDead", "dragCurve", "pedalH", "volume"]) {
   $(id).addEventListener("input", (e) => { settings[id] = +e.target.value; saveSettings(settings); renderSettings(); });
 }
 $("pause").addEventListener("click", pause);
@@ -356,7 +376,10 @@ addEventListener("keydown", (e) => {
   if (e.code === "Escape") { if (running) pause(); else if (curScreen === "pause") start(); }
   if (e.code === "KeyR" && running) resetCityCar(car, city);
 });
-document.addEventListener("visibilitychange", () => { if (document.hidden && running) pause(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { if (running) pause(); audio.suspend(); }
+  else if (audio.ready) audio.resume();
+});
 
 async function start() {
   if (matchMedia("(pointer: coarse)").matches && !document.fullscreenElement) {
@@ -364,6 +387,7 @@ async function start() {
   }
   $("menu").classList.add("hidden");
   input.release();
+  audio.resume(); audio.setVolume(settings.volume);
   inShift = true; running = true; last = performance.now(); acc = 0;
 }
 function pause() {
@@ -388,4 +412,4 @@ newShift();
 show("title");
 requestAnimationFrame(loop);
 
-window.__lm = { get car() { return car; }, get shift() { return shift; }, city, input, settings, start, info: () => view.info() };
+window.__lm = { get car() { return car; }, get shift() { return shift; }, city, input, settings, start, info: () => view.info(), audio };
