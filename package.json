@@ -1,0 +1,17 @@
+{
+  "name": "touch-racer",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5395 --strictPort --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --port 5396 --strictPort --host 127.0.0.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  }
+}
