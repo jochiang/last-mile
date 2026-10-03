@@ -135,7 +135,7 @@ function buildTrees(tr) {
   return new THREE.Mesh(mergeGeometries(parts), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
 }
 
-function buildCar(color, ghost = false) {
+export function buildCar(color, ghost = false) {
   const g = new THREE.Group();
   const mat = (hex) => ghost
     ? new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.32, depthWrite: false })

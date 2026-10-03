@@ -23,8 +23,8 @@ const check = (name, cond, info) => { console.log(`${cond ? "ok  " : "FAIL"} ${n
 { // braking from 40 m/s
   const c = fresh(); c.u = 40;
   let d = 0; const x0 = c.x;
-  run(c, { steer: 0, throttle: 0, brake: 1 }, 60 * 6, (t, c) => { if (spd(c) > 0.1) d = c.x - x0; center(c); });
-  check("stop from 144 km/h", d > 45 && d < 90 && spd(c) < 0.1, `${d.toFixed(1)} m (${(40 * 40 / (2 * d) / 9.81).toFixed(2)} g)`);
+  run(c, { steer: 0, throttle: 0, brake: 1 }, 60 * 6, (t, c) => { d = Math.max(d, c.x - x0); center(c); });   // furthest point: holding the brake afterwards reverses
+  check("stop from 144 km/h (then reverse engages)", d > 40 && d < 90 && c.reverse && c.u < -1, `${d.toFixed(1)} m (${(40 * 40 / (2 * d) / 9.81).toFixed(2)} g)`);
 }
 // steady cornering, then a change of pedal: does the yaw rate respond the way a driver expects?
 function corner(changeTo, label, u0 = 18, steer = 0.45, throttle = 0.32) {

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#8fd3ff">
+<title>Touch Racer</title>
+<style>
+  :root { --ink: #10151c; --paper: #fffaf0; --hot: #ff7a1a; --cool: #4fd6ff; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3ff; color: var(--paper);
+    font: 600 15px/1.25 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 2px 0 rgba(0,0,0,.35); }
+  #times { top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); text-align: center; }
+  #now { font-size: 30px; font-variant-numeric: tabular-nums; font-weight: 800; }
+  #sub { font-size: 13px; opacity: .9; font-variant-numeric: tabular-nums; }
+  #delta.good { color: #8cff8c; } #delta.bad { color: #ff9a9a; }
+  #steerbar { width: 160px; height: 8px; margin: 6px auto 0; border-radius: 4px; background: rgba(0,0,0,.3); position: relative; }
+  #steerbar i { position: absolute; top: -3px; width: 4px; height: 14px; margin-left: -2px; background: #fff; border-radius: 2px; left: 50%; }
+  #steerbar b { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.4); }
+  #speed { bottom: max(14px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); text-align: center; }
+  #kmh { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  #kmh small { font-size: 13px; opacity: .8; }
+  #charge { width: 150px; height: 10px; margin: 6px auto 0; background: rgba(0,0,0,.35); border-radius: 5px; overflow: hidden; display: flex; }
+  #charge span { height: 100%; width: 0; background: #fff; }
+  #lapinfo { top: max(10px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); text-align: right; font-size: 14px; }
+  #toast { top: 30%; left: 50%; transform: translate(-50%, -50%); font-size: 30px; font-weight: 900; opacity: 0; transition: opacity .25s; text-align: center; }
+  #toast.show { opacity: 1; transition: none; }
+  #boostfx { position: fixed; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(79,214,255,.45) 100%); }
+
+  /* touch controls */
+  #zone { position: fixed; left: 0; top: 0; bottom: 0; width: 58%; touch-action: none; }
+  #zone .hint { position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%); opacity: .55; font-size: 13px; text-align: center; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.4); }
+  .btn { position: fixed; border-radius: 50%; display: grid; place-items: center; font-weight: 800; letter-spacing: .04em;
+    background: rgba(16,21,28,.35); border: 3px solid rgba(255,255,255,.7); touch-action: none; color: #fff; }
+  .btn.on { background: rgba(255,255,255,.4); }
+  #drift { right: max(22px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); width: 128px; height: 128px; font-size: 17px; }
+  #brake { right: calc(max(22px, env(safe-area-inset-right)) + 136px); bottom: max(22px, env(safe-area-inset-bottom)); width: 78px; height: 78px; font-size: 13px; }
+  #pause { position: fixed; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 44px; height: 44px; border-radius: 10px;
+    background: rgba(16,21,28,.35); border: 2px solid rgba(255,255,255,.6); color: #fff; font-size: 18px; }
+  /* the pedal strip: gas on top, both in the middle band, brake at the bottom */
+  #pedal { position: fixed; right: max(22px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); height: 150px; width: 92px;
+    border-radius: 20px; border: 3px solid rgba(255,255,255,.7); touch-action: none; overflow: hidden;
+    background: linear-gradient(to bottom, rgba(60,200,90,.6) 0%, rgba(60,200,90,.6) 10%, rgba(60,200,90,.3) 38%,
+      rgba(255,190,40,.45) 38%, rgba(255,190,40,.45) 60%, rgba(230,60,50,.3) 60%, rgba(230,60,50,.65) 90%, rgba(230,60,50,.65) 100%); }
+  #pedal .lab { position: absolute; left: 0; right: 0; text-align: center; font-weight: 800; font-size: 11px; line-height: 1; letter-spacing: .06em; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.45); }
+  #pedal .gas { top: 15%; } #pedal .both { top: 45%; } #pedal .brk { top: 76%; }
+  #pedal i { position: absolute; left: 0; right: 0; height: 4px; margin-top: -2px; background: #fff; display: none; box-shadow: 0 0 6px #fff; }
+  #pedhud { display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; font-size: 10px; letter-spacing: .05em; }
+  #pedhud .pb { width: 56px; height: 8px; background: rgba(0,0,0,.35); border-radius: 4px; overflow: hidden; }
+  #pedhud .pb span { display: block; height: 100%; width: 0; }
+  #pbT { background: #5fdc78; } #pbB { background: #ff6a5a; }
+  #wbar { position: relative; width: 70px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(255,255,255,.15), rgba(255,255,255,.4) 50%, rgba(255,255,255,.15)); }
+  #wbar i { position: absolute; top: -3px; width: 6px; height: 14px; margin-left: -3px; border-radius: 3px; background: #ffd27a; left: 50%; }
+  .seg.sel { border-color: var(--hot); background: rgba(255,122,26,.25); }
+  #knob { position: fixed; pointer-events: none; display: none; }
+  #knob .ring { position: absolute; border: 2px solid rgba(255,255,255,.55); border-radius: 50%; }
+  #knob .dot { position: absolute; width: 44px; height: 44px; margin: -22px; border-radius: 50%; background: rgba(255,255,255,.75); }
+  #knob .rail { position: absolute; height: 6px; margin-top: -3px; border-radius: 3px; background: rgba(255,255,255,.35); }
+
+  /* menu */
+  #menu { position: fixed; inset: 0; background: rgba(16,21,28,.78); display: grid; place-items: center; overflow: auto; padding: 16px; }
+  #menu.hidden { display: none; }
+  .card { width: min(720px, 100%); }
+  h1 { margin: 0 0 4px; font-size: 30px; font-weight: 900; letter-spacing: .02em; }
+  .muted { opacity: .75; font-weight: 500; font-size: 13px; }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 10px; }
+  .mode { padding: 10px; border-radius: 12px; border: 2px solid rgba(255,255,255,.25); background: rgba(255,255,255,.06); color: #fff; text-align: left; font: inherit; }
+  .mode b { display: block; font-size: 17px; }
+  .mode span { font-size: 12px; font-weight: 500; opacity: .8; }
+  .mode.sel { border-color: var(--hot); background: rgba(255,122,26,.18); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; font-size: 13px; }
+  .row input[type=range] { flex: 1; min-width: 140px; accent-color: var(--hot); }
+  button.go { padding: 12px 26px; font: 800 18px system-ui, sans-serif; border-radius: 12px; border: 0; background: var(--hot); color: #fff; }
+  button.sm { padding: 7px 12px; font: 700 13px system-ui, sans-serif; border-radius: 9px; border: 2px solid rgba(255,255,255,.4); background: transparent; color: #fff; }
+  #msg { color: #ffd27a; font-size: 13px; min-height: 1em; margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 10px; }
+  th, td { padding: 4px 6px; text-align: right; border-bottom: 1px solid rgba(255,255,255,.12); }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  td.best { color: #8cff8c; }
+  @media (max-height: 480px) { h1 { font-size: 22px; } .modes { margin: 8px 0 6px; } .mode { padding: 7px 9px; } .mode b { font-size: 15px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="boostfx"></div>
+<div id="zone"><div class="hint" id="zonehint"></div></div>
+<div id="knob"><div class="rail"></div><div class="ring"></div><div class="dot"></div></div>
+<div id="pedal"><span class="lab gas">GAS</span><span class="lab both">BOTH</span><span class="lab brk">BRAKE</span><i></i></div>
+<button class="btn" id="brake">BRAKE</button>
+<button class="btn" id="drift">DRIFT</button>
+<button id="pause" aria-label="Menu">❚❚</button>
+
+<div class="hud" id="times">
+  <div id="now">0:00.00</div>
+  <div id="sub"><span id="last">last –</span> · <span id="best">best –</span> <span id="delta"></span></div>
+  <div id="steerbar"><b></b><i></i></div>
+</div>
+<div class="hud" id="lapinfo"><div id="lapn">LAP 1</div><div id="modename" class="muted"></div></div>
+<div class="hud" id="speed"><div id="kmh">0 <small>km/h</small></div><div id="charge"><span></span></div>
+  <div id="pedhud"><div class="pb"><span id="pbB"></span></div><span>F</span><div id="wbar" title="weight: front / rear"><i></i></div><span>R</span><div class="pb"><span id="pbT"></span></div></div></div>
+<div class="hud" id="toast"></div>
+
+<div id="menu">
+  <div class="card">
+    <h1>TOUCH RACER</h1>
+    <div class="muted">A steering test. Pick a car and a steering scheme, do a few laps, compare the times.</div>
+    <div class="row" style="margin-top:12px"><b>Car</b>
+      <button class="sm seg" data-model="pedals">Pedals: gas/brake strip, weight transfer</button>
+      <button class="sm seg" data-model="arcade">Arcade: auto gas, drift button</button></div>
+    <div class="modes" id="modes"></div>
+    <div id="opt-drag">
+      <div class="row">Range <input type="range" id="dragRange" min="30" max="140" step="5"> <span id="dragRangeV"></span></div>
+      <div class="row">Centre zone <input type="range" id="dragDead" min="0" max="0.3" step="0.02"> <span id="dragDeadV"></span></div>
+      <div class="row">Curve <input type="range" id="dragCurve" min="1" max="2.2" step="0.1"> <span id="dragCurveV"></span></div>
+    </div>
+    <div class="row" id="opt-pedal">Pedal strip height <input type="range" id="pedalH" min="80" max="260" step="10"> <span id="pedalHV"></span></div>
+    <div class="row" id="opt-tilt">Full lock at <input type="range" id="tiltLock" min="10" max="40" step="1"> <span id="tiltLockV"></span>
+      <button class="sm" id="recenter">Recenter</button> <label><input type="checkbox" id="tiltInvert"> invert</label></div>
+    <div id="msg"></div>
+    <div class="row"><button class="go" id="go">RACE</button> <button class="sm" id="restart">Restart lap</button> <button class="sm" id="clear">Clear times</button></div>
+    <div class="muted" id="help"></div>
+    <table id="laps"></table>
+  </div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
