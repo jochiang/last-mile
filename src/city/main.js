@@ -1,6 +1,6 @@
 // Last Mile: the delivery game loop, HUD, minimap and speed lines.
 import { buildCity, X, NB, CURB } from "./map.js";
-import { route } from "./gps.js";
+import { route, nextTurn } from "./gps.js";
 import { makeCityCar, stepCityCar, resetCityCar } from "./world.js";
 import { makeShift, stepShift, rating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
@@ -82,6 +82,15 @@ function hud() {
     $("spill").querySelector(".bar span").style.width = `${(1 - o.spill) * 100}%`;
     $("stopping").firstElementChild.style.width = `${Math.min(1, o.hold / SHIFT.stopHold) * 100}%`;
   }
+  // turn-by-turn: the next manoeuvre and how far
+  if (rt && running) {
+    const nt = nextTurn(city, rt);
+    $("turn").style.display = "flex";
+    $("tarrow").textContent = { left: "↰", right: "↱", uturn: "↶", arrive: "◎" }[nt.dir];
+    $("tdist").textContent = nt.dist < 15 ? (nt.dir === "arrive" ? "HERE" : "NOW") : `${Math.round(nt.dist / 10) * 10} m`;
+    $("tonto").textContent = nt.dir === "arrive" ? (o && o.phase === "pickup" ? o.rest.name : o ? o.cust.label : "") : nt.onto ? `onto ${nt.onto}` : "";
+    $("turn").classList.toggle("soon", nt.dist < 45);
+  } else $("turn").style.display = "none";
   const kmh = Math.abs(car.u) * 3.6;
   $("kmh").firstChild.textContent = `${Math.round(kmh)} `;
   $("gear").textContent = car.reverse ? "REVERSE" : "";
@@ -118,45 +127,60 @@ function knob() {
   }
 }
 
-// --- minimap: north up. A static layer drawn once, then the route, beacons and the car on top
-const mapCv = $("map"), mctx = mapCv.getContext("2d"), MS = mapCv.width;
-const B = city.bounds, mscale = MS / (B.x1 - B.x0 - 40), mx = (x) => (x - B.x0 - 20) * mscale, mz = (z) => (z - B.z0 - 20) * mscale;
-const base = document.createElement("canvas"); base.width = base.height = MS;
+// --- minimap: heading-up and centred on the car, about 120 m around it. A static layer of the whole
+// district is drawn once at the map's scale, then rotated under the car each frame.
+const mapCv = $("map"), mctx = mapCv.getContext("2d"), MS = mapCv.width, VIEW = 125;   // metres from centre to edge
+const B = city.bounds, mscale = MS / 2 / VIEW, bx = (x) => (x - B.x0) * mscale, bz = (z) => (z - B.z0) * mscale;
+const base = document.createElement("canvas"); base.width = Math.ceil((B.x1 - B.x0) * mscale); base.height = Math.ceil((B.z1 - B.z0) * mscale);
 {
   const g = base.getContext("2d");
-  g.fillStyle = "#2c3038"; g.fillRect(0, 0, MS, MS);
+  g.fillStyle = "#2c3038"; g.fillRect(0, 0, base.width, base.height);
   g.fillStyle = "#7d8088";
   for (const e of city.edges) {
     const w = CURB * 2 * mscale;
-    g.fillRect(Math.min(mx(e.ax), mx(e.bx)) - w / 2, Math.min(mz(e.az), mz(e.bz)) - w / 2, Math.abs(mx(e.bx) - mx(e.ax)) + w, Math.abs(mz(e.bz) - mz(e.az)) + w);
+    g.fillRect(Math.min(bx(e.ax), bx(e.bx)) - w / 2, Math.min(bz(e.az), bz(e.bz)) - w / 2, Math.abs(bx(e.bx) - bx(e.ax)) + w, Math.abs(bz(e.bz) - bz(e.az)) + w);
   }
   g.fillStyle = "#6dbb55";
-  for (const p of [...city.parks, ...city.removed]) g.fillRect(mx(p.x0), mz(p.z0), (p.x1 - p.x0) * mscale, (p.z1 - p.z0) * mscale);
-  g.fillStyle = "#5d6068";
-  for (const p of [...city.lots, ...city.alleys]) g.fillRect(mx(p.x0), mz(p.z0), (p.x1 - p.x0) * mscale, (p.z1 - p.z0) * mscale);
+  for (const p of [...city.parks, ...city.removed]) g.fillRect(bx(p.x0), bz(p.z0), (p.x1 - p.x0) * mscale, (p.z1 - p.z0) * mscale);
+  g.fillStyle = "#666a73";
+  for (const p of [...city.lots, ...city.alleys]) g.fillRect(bx(p.x0), bz(p.z0), (p.x1 - p.x0) * mscale, (p.z1 - p.z0) * mscale);
   for (const r of city.restaurants) {
     g.fillStyle = "#" + r.color.toString(16).padStart(6, "0");
-    g.beginPath(); g.arc(mx(r.x), mz(r.z), 5, 0, 7); g.fill();
+    g.beginPath(); g.arc(bx(r.x), bz(r.z), 6, 0, 7); g.fill();
   }
 }
 function drawMap() {
+  const c = MS / 2;
+  mctx.save();
+  mctx.clearRect(0, 0, MS, MS);
+  mctx.beginPath(); mctx.arc(c, c, c, 0, 7); mctx.clip();
+  mctx.fillStyle = "#1c1f25"; mctx.fillRect(0, 0, MS, MS);
+  // rotate the world so the car's heading points up
+  mctx.translate(c, c);
+  mctx.rotate(car.h - Math.PI);
+  mctx.translate(-bx(car.x), -bz(car.z));
   mctx.drawImage(base, 0, 0);
   if (rt) {
-    mctx.strokeStyle = "#28dcff"; mctx.lineWidth = 4; mctx.beginPath();
-    rt.points.forEach(([x, z], i) => (i ? mctx.lineTo(mx(x), mz(z)) : mctx.moveTo(mx(x), mz(z))));
+    mctx.strokeStyle = "#28dcff"; mctx.lineWidth = 6; mctx.lineJoin = "round"; mctx.beginPath();
+    rt.points.forEach(([x, z], i) => (i ? mctx.lineTo(bx(x), bz(z)) : mctx.moveTo(bx(x), bz(z))));
     mctx.stroke();
   }
+  mctx.restore();
+  // the destination: on the map if it's in range, otherwise pinned to the rim pointing at it
   const o = shift.order;
   if (o) {
     const p = o.phase === "pickup" ? o.rest : o.cust;
+    const dx = p.x - car.x, dz = p.z - car.z, ang = car.h - Math.PI;
+    let sx = (dx * Math.cos(ang) - dz * Math.sin(ang)) * mscale, sz = (dx * Math.sin(ang) + dz * Math.cos(ang)) * mscale;
+    const r = Math.hypot(sx, sz), lim = c - 10;
+    if (r > lim) { sx *= lim / r; sz *= lim / r; }
     mctx.fillStyle = o.phase === "pickup" ? "#ffa31a" : "#3dff7a";
-    mctx.beginPath(); mctx.arc(mx(p.x), mz(p.z), 7, 0, 7); mctx.fill();
-    mctx.strokeStyle = "#fff"; mctx.lineWidth = 2; mctx.stroke();
+    mctx.beginPath(); mctx.arc(c + sx, c + sz, 9, 0, 7); mctx.fill();
+    mctx.strokeStyle = "#fff"; mctx.lineWidth = 3; mctx.stroke();
   }
-  // the car: an arrow
-  mctx.save(); mctx.translate(mx(car.x), mz(car.z)); mctx.rotate(-car.h + Math.PI);
-  mctx.fillStyle = "#fff"; mctx.beginPath(); mctx.moveTo(0, -9); mctx.lineTo(6, 7); mctx.lineTo(0, 4); mctx.lineTo(-6, 7); mctx.closePath(); mctx.fill();
-  mctx.restore();
+  // the car: an arrow at the centre, always pointing up
+  mctx.fillStyle = "#fff";
+  mctx.beginPath(); mctx.moveTo(c, c - 13); mctx.lineTo(c + 9, c + 10); mctx.lineTo(c, c + 5); mctx.lineTo(c - 9, c + 10); mctx.closePath(); mctx.fill();
 }
 
 // --- speed lines: streaks from the screen edges once you're really moving

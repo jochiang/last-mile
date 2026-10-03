@@ -78,4 +78,14 @@ check("holding steady stays steady", Math.abs(steady.ratio - 1) < 0.05 && steady
   const after = spd(c), slide = Math.abs(c.slipR);
   check("a second on the grass at full gas", after > 26 && after < 36 && slide < 0.2, `${(after * 3.6).toFixed(0)} km/h after 1 s (from 144), rear slip ${(slide * 57.3).toFixed(0)} deg`);
 }
+{ // turning while braking hard: the car should still turn a useful amount (it used to plough on)
+  const turn = (brake) => {
+    const c = fresh(); c.u = 20; let yaw = 0;
+    run(c, { steer: 0.7, throttle: 0, brake }, 36, (t, c) => { yaw += Math.abs(c.r) / 60; });
+    return yaw;
+  };
+  const coast = turn(0), hard = turn(1);
+  // the user wants *some* understeer on the brakes, but no lock-up: about three quarters of the turn
+  check("turning under full brakes: some understeer, no lock-up", hard > coast * 0.65 && hard < coast * 0.88, `heading change in 0.6 s from 72 km/h: coasting ${(coast * 57.3).toFixed(0)} deg, full brakes ${(hard * 57.3).toFixed(0)} deg (${((hard / coast) * 100).toFixed(0)}%)`);
+}
 console.log(ok ? "all physics checks pass" : "SOME PHYSICS CHECKS FAILED");

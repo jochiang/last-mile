@@ -29,6 +29,9 @@ export const P = {
   steerRate: 4,                               // full locks per second: the wheel can't snap, whatever the thumb does
   revForce: 6000, revMax: 8, revHold: 0.35,   // reverse: pull, top speed (m/s), seconds of brake at a standstill to engage
   lockFloor: 0.35,                            // side grip left on a locked or spinning axle
+  abs: 0.85,                                   // ABS: braking never takes more than this share of an axle's grip
+  circle: 0.88,                                // friction circle: braking/driving counts this much against side grip
+                                              // (under 1 = an arcade-friendly "ellipse": you can brake and still turn)
   loadLag: 0.1,                               // seconds for weight to move between axles
   loadSens: 0.4,                              // grip per kg falls as load rises (real tyres): tempers weight transfer
   sub: 4,                                     // substeps per tick (tyres are stiff)
@@ -85,11 +88,17 @@ export function dynamics(c, inp, p = P) {
     const N0f = (W * p.b) / L, N0r = (W * p.a) / L;
     const capF = mu * Nf * Math.max(0.5, 1 - p.loadSens * (Nf / N0f - 1));
     const capR = mu * p.rearGrip * Nr * Math.max(0.5, 1 - p.loadSens * (Nr / N0r - 1));
+    // ABS: the brakes back off before an axle locks, so the front keeps steering
+    if (brake > 0) {
+      if (Math.abs(fxF) > p.abs * capF) fxF = Math.sign(fxF) * p.abs * capF;
+      if (drive === 0 && Math.abs(fxR) > p.abs * capR) fxR = Math.sign(fxR) * p.abs * capR;
+    }
     const kF = Math.abs(fxF) / capF, kR = Math.abs(fxR) / capR;
     if (kF > 1) fxF /= kF;
     if (kR > 1) fxR /= kR;
-    const latF = capF * (kF >= 1 ? p.lockFloor : Math.max(p.lockFloor, Math.sqrt(1 - kF * kF)));
-    const latR = capR * (kR >= 1 ? p.lockFloor : Math.max(p.lockFloor, Math.sqrt(1 - kR * kR)));
+    const eF = kF * p.circle, eR = kR * p.circle;
+    const latF = capF * (kF >= 1 ? p.lockFloor : Math.max(p.lockFloor, Math.sqrt(1 - eF * eF)));
+    const latR = capR * (kR >= 1 ? p.lockFloor : Math.max(p.lockFloor, Math.sqrt(1 - eR * eR)));
     // slip angles and side forces; tyres need some rolling speed to make force at all
     const vF = c.v + p.a * c.r, vR = c.v - p.b * c.r, ue = Math.max(Math.abs(c.u), 3);
     const aF = Math.atan2(vF, ue) - c.delta * dir, aR = Math.atan2(vR, ue);

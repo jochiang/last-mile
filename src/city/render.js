@@ -352,7 +352,7 @@ export function createCityRenderer(canvas, city) {
     if (!cam.init) { cam.yaw = pose.h; cam.init = true; }
     let dy = pose.h - cam.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     cam.yaw += dy * Math.min(1, dt * (pose.reverse ? 2 : 6));
-    const want = 6.2 + pose.speed * 0.035;
+    const want = 6.8 + pose.speed * 0.035;
     let tx = pose.x - Math.sin(cam.yaw) * want, tz = pose.z - Math.cos(cam.yaw) * want;
     let k = 1;
     for (let s = 1; s >= 0.25; s -= 0.125) {
@@ -365,8 +365,9 @@ export function createCityRenderer(canvas, city) {
     cam.shake = Math.max(0, cam.shake - dt * 2);
     // a little road buzz that grows with speed
     const buzz = Math.max(0, pose.speed - 18) * 0.0018, sh = cam.shake + buzz;
-    camera.position.set(tx + (Math.random() - 0.5) * sh, 2.25 + (Math.random() - 0.5) * sh, tz + (Math.random() - 0.5) * sh);
-    camera.lookAt(pose.x + Math.sin(cam.yaw) * 6, 1.2, pose.z + Math.cos(cam.yaw) * 6);
+    // high enough to see the road (and the GPS line) over the car, looking well up the street
+    camera.position.set(tx + (Math.random() - 0.5) * sh, 3.3 + (Math.random() - 0.5) * sh, tz + (Math.random() - 0.5) * sh);
+    camera.lookAt(pose.x + Math.sin(cam.yaw) * 12, 0.6, pose.z + Math.cos(cam.yaw) * 12);
     const fov = (camera.aspect < 1 ? 86 : 64) + Math.max(0, pose.speed - 8) * 0.42;
     cam.fov += (fov - cam.fov) * Math.min(1, dt * 3);
     camera.fov = cam.fov;

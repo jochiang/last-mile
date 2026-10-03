@@ -30,11 +30,16 @@
   #stopping span { display: block; height: 100%; width: 0; background: #fff; }
 
   #shiftbar { top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); text-align: center; font-variant-numeric: tabular-nums; }
-  #clock { font-size: 22px; font-weight: 900; }
+  #clock { font-size: 18px; font-weight: 900; }
   #money { font-size: 14px; }
   #rating { font-size: 13px; color: #ffe07a; }
+  #turn { top: calc(max(10px, env(safe-area-inset-top)) + 72px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 10px; }
+  #turn .arrow { font-size: 34px; line-height: 1; width: 40px; text-align: center; font-weight: 900; }
+  #turn .dist { font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; }
+  #turn .onto { font-size: 12px; opacity: .85; }
+  #turn.soon { background: rgba(40,220,255,.55); }
   #map { position: fixed; top: max(10px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); width: 132px; height: 132px; border-radius: 12px;
-    border: 2px solid rgba(255,255,255,.6); background: rgba(16,21,28,.5); pointer-events: none; }
+    border: 2px solid rgba(255,255,255,.6); background: rgba(16,21,28,.5); pointer-events: none; border-radius: 50%; }
 
   #speed { bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); text-align: center; }
   #kmh { font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
@@ -115,6 +120,7 @@
   <div id="stopping"><span></span></div>
 </div>
 <div class="hud" id="shiftbar"><div id="clock">6:00</div><div id="money">$0.00</div><div id="rating">★ 4.80</div></div>
+<div class="hud panel" id="turn"><div class="arrow" id="tarrow">↑</div><div><div class="dist" id="tdist">–</div><div class="onto" id="tonto"></div></div></div>
 <canvas id="map" width="264" height="264"></canvas>
 <div class="hud" id="speed">
   <div id="gear"></div>

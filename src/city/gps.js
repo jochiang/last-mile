@@ -57,3 +57,26 @@ export function placeDistance(city, a, b) {
   const h = Math.atan2(b.x - a.x, b.z - a.z);   // assume you set off roughly toward it
   return route(city, a.x, a.z, h, b).length;
 }
+
+/** The next manoeuvre on a route, for the turn prompt: { dir: "left"|"right"|"arrive", dist, onto }. */
+export function nextTurn(city, rt) {
+  // points[0] is the car and points[1] its projection onto the street: that sideways hop isn't a turn
+  const pts = rt.points;
+  let d = Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]);
+  for (let i = 2; i < pts.length - 1; i++) {
+    const [ax, az] = pts[i - 1], [bx, bz] = pts[i], [cx, cz] = pts[i + 1];
+    d += Math.hypot(bx - ax, bz - az);
+    const a1 = Math.atan2(bx - ax, bz - az), a2 = Math.atan2(cx - bx, cz - bz);
+    if (Math.hypot(cx - bx, cz - bz) < 0.5 || Math.hypot(bx - ax, bz - az) < 0.5) continue;
+    const turn = Math.atan2(Math.sin(a2 - a1), Math.cos(a2 - a1));   // + = heading rises = left
+    if (Math.abs(turn) > 0.5) {
+      const onto = city.edges.find((e) => {
+        const mx = (bx + cx) / 2, mz = (bz + cz) / 2;
+        return Math.min(e.ax, e.bx) - 1 <= mx && mx <= Math.max(e.ax, e.bx) + 1 && Math.min(e.az, e.bz) - 1 <= mz && mz <= Math.max(e.az, e.bz) + 1;
+      });
+      return { dir: Math.abs(turn) > 2.6 ? "uturn" : turn > 0 ? "left" : "right", dist: d, onto: onto ? onto.name : "" };
+    }
+  }
+  const [ax, az] = pts[pts.length - 2], [bx, bz] = pts[pts.length - 1];
+  return { dir: "arrive", dist: d + Math.hypot(bx - ax, bz - az), onto: "" };
+}

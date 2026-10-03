@@ -7,7 +7,7 @@ import { DT } from "../car.js";
 
 export const SHIFT = {
   length: 6 * 60,          // seconds
-  zoneR: 6, stopSpeed: 1.8, stopHold: 0.45,
+  zoneR: 7.5, stopSpeed: 3.2, stopHold: 0.3,   // a rolling crawl (<12 km/h) in the circle counts (user: the old 6.5 km/h was too strict)
   pace: 13, slack: 10,     // the clock: street distance at this speed (m/s), plus slack seconds
   base: 3, perKm: 9, tipMax: 7,
   spillG: 0.9, spillRate: 0.12, spillHit: 0.02,     // drinks: g over this, per second; and per m/s of impact
