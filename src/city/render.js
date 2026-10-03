@@ -141,7 +141,7 @@ function signMesh(r) {
 function chevronTexture() {
   const cv = document.createElement("canvas"); cv.width = 64; cv.height = 64;
   const g = cv.getContext("2d");
-  g.fillStyle = "rgba(40,220,255,0.55)"; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = "rgba(200,200,200,0.55)"; g.fillRect(0, 0, 64, 64);
   g.fillStyle = "rgba(255,255,255,0.95)";
   g.beginPath(); g.moveTo(10, 8); g.lineTo(32, 30); g.lineTo(54, 8); g.lineTo(54, 24); g.lineTo(32, 46); g.lineTo(10, 24); g.closePath(); g.fill();
   const t = new THREE.CanvasTexture(cv);
@@ -207,27 +207,52 @@ export function createCityRenderer(canvas, city) {
   const pickBeacon = beacon(0xffa31a), dropBeacon = beacon(0x3dff7a);
 
   // the GPS line
-  const gpsMat = new THREE.MeshBasicMaterial({ map: chevronTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 });
+  const gpsMat = new THREE.MeshBasicMaterial({ map: chevronTexture(), vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 });
   const gps = new THREE.Mesh(new THREE.BufferGeometry(), gpsMat);
   gps.frustumCulled = false;
   scene.add(gps);
-  function setRoute(points) {
-    const pos = [], uv = [], W = 0.75;
+  // the line is cut into 2 m pieces with a distance per vertex, so it can be coloured by the speed plan
+  let routeS = null, plan = null;
+  function setRoute(points, speedPlan) {
+    const pos = [], uv = [], ss = [], W = 0.75;
     let along = 0;
     for (let i = 0; i < points.length - 1; i++) {
       const [ax, az] = points[i], [bx, bz] = points[i + 1], L = Math.hypot(bx - ax, bz - az);
       if (L < 0.01) continue;
       const nx = -(bz - az) / L * W, nz = (bx - ax) / L * W, y = 0.08;
-      const u0 = along / 2.2, u1 = (along + L) / 2.2;
-      pos.push(ax + nx, y, az + nz, ax - nx, y, az - nz, bx + nx, y, bz + nz, bx + nx, y, bz + nz, ax - nx, y, az - nz, bx - nx, y, bz - nz);
-      uv.push(0, -u0, 1, -u0, 0, -u1, 0, -u1, 1, -u0, 1, -u1);
+      const n = Math.max(1, Math.ceil(L / 2));
+      for (let k = 0; k < n; k++) {
+        const f0 = k / n, f1 = (k + 1) / n;
+        const px = ax + (bx - ax) * f0, pz = az + (bz - az) * f0, qx = ax + (bx - ax) * f1, qz = az + (bz - az) * f1;
+        const s0 = along + L * f0, s1 = along + L * f1, u0 = s0 / 2.2, u1 = s1 / 2.2;
+        pos.push(px + nx, y, pz + nz, px - nx, y, pz - nz, qx + nx, y, qz + nz, qx + nx, y, qz + nz, px - nx, y, pz - nz, qx - nx, y, qz - nz);
+        uv.push(0, -u0, 1, -u0, 0, -u1, 0, -u1, 1, -u0, 1, -u1);
+        ss.push(s0, s0, s1, s1, s0, s1);
+      }
       along += L;
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(ss.length * 3).fill(1), 3));
     gps.geometry.dispose();
     gps.geometry = g;
+    routeS = ss; plan = speedPlan;
+  }
+  // blue: keep going; yellow: ease off; red: you're too fast for what's ahead, brake by here
+  const BLUE = new THREE.Color(0x28dcff), YELLOW = new THREE.Color(0xffd23a), RED = new THREE.Color(0xff3b30), mix = new THREE.Color();
+  function colorRoute(speed, sCar, allowed) {
+    if (!routeS || !plan) return;
+    const col = gps.geometry.attributes.color;
+    for (let i = 0; i < routeS.length; i++) {
+      const over = speed - allowed(plan, routeS[i]);
+      if (over > 1) mix.copy(RED);
+      else if (over > -4) mix.copy(YELLOW).lerp(RED, Math.max(0, (over + 4) / 5));
+      else mix.copy(BLUE).lerp(YELLOW, Math.max(0, (over + 8) / 4));
+      col.setXYZ(i, mix.r, mix.g, mix.b);
+    }
+    col.needsUpdate = true;
+    void sCar;
   }
 
   // particles: tyre smoke, sparks off walls, lamppost debris
@@ -375,5 +400,5 @@ export function createCityRenderer(canvas, city) {
     renderer.render(scene, camera);
   }
 
-  return { resize, frame, setRoute, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
+  return { resize, frame, setRoute, colorRoute, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
 }

@@ -24,7 +24,7 @@ for (let n = 0; n < shifts; n++) {
     const o = sh.order;
     if (!o) continue;
     const target = o.phase === "pickup" ? o.rest : o.cust;
-    if (!rt || tick - rtT > 15) { rt = route(city, car.x, car.z, car.h, target); rtT = tick; }
+    if (!rt || tick - rtT > 15) { rt = route(city, car.x, car.z, car.h, target, Math.max(0, car.u)); rtT = tick; }
     // pure pursuit along the polyline
     const s = Math.hypot(car.vx, car.vz), look = 6 + s * 0.5;
     let px = target.x, pz = target.z, acc = 0, found = false, turnAt = Infinity, turnAng = 0;

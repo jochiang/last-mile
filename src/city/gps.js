@@ -14,10 +14,14 @@ export function nearestEdge(city, x, z) {
   return best;
 }
 
-const UTURN = 45;   // metres of penalty for a route that starts by turning around
+// metres of penalty for a route that starts by turning around: it grows with speed, so the GPS keeps
+// you moving forward round the block unless turning back is much shorter (user, 2026-10-03)
+const uturnCost = (speed) => 90 + speed * 6;
 
-/** Route from a car at (x, z) heading h to a place {edge, t, x, z}. Returns { points: [[x, z]...], length }. */
-export function route(city, x, z, h, dest) {
+/** Route from a car at (x, z) heading h, moving at speed (m/s), to a place {edge, t, x, z}.
+ *  Returns { points: [[x, z]...], length }. */
+export function route(city, x, z, h, dest, speed = 0) {
+  const UTURN = uturnCost(speed);
   const s = nearestEdge(city, x, z), e = s.e;
   // which way along the edge is the car facing? (+1 = toward b)
   const fx = Math.sin(h), fz = Math.cos(h), along = (e.bx - e.ax) * fx + (e.bz - e.az) * fz >= 0 ? 1 : -1;
@@ -79,4 +83,46 @@ export function nextTurn(city, rt) {
   }
   const [ax, az] = pts[pts.length - 2], [bx, bz] = pts[pts.length - 1];
   return { dir: "arrive", dist: d + Math.hypot(bx - ax, bz - az), onto: "" };
+}
+
+/** Target speed for a turn of this many radians (a 90 degree street corner ~ 40 km/h). */
+const cornerSpeed = (ang) => 4 + 7 * Math.pow(Math.max(0, Math.PI - ang) / (Math.PI / 2), 1.3);
+export const STOP_SPEED = 2.5, PLAN_DECEL = 9;   // the stop at the end; the braking rate the plan assumes (m/s^2)
+
+/** Speed limits along a route: [{ s, v }] at each turn and at the stop, s = metres from points[0]. */
+export function speedPlan(rt) {
+  const pts = rt.points, out = [];
+  let s = Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]);
+  for (let i = 2; i < pts.length - 1; i++) {
+    const [ax, az] = pts[i - 1], [bx, bz] = pts[i], [cx, cz] = pts[i + 1];
+    const l1 = Math.hypot(bx - ax, bz - az), l2 = Math.hypot(cx - bx, cz - bz);
+    s += l1;
+    if (l1 < 0.5 || l2 < 0.5) continue;
+    const turn = Math.abs(Math.atan2(Math.sin(Math.atan2(cx - bx, cz - bz) - Math.atan2(bx - ax, bz - az)), Math.cos(Math.atan2(cx - bx, cz - bz) - Math.atan2(bx - ax, bz - az))));
+    if (turn > 0.35) out.push({ s, v: cornerSpeed(turn) });
+  }
+  const [ax, az] = pts[pts.length - 2], [bx, bz] = pts[pts.length - 1];
+  out.push({ s: s + Math.hypot(bx - ax, bz - az), v: STOP_SPEED });
+  return out;
+}
+
+/** The highest speed you can be doing at distance s along the route and still make every limit ahead. */
+export function allowedSpeed(plan, s) {
+  let v = Infinity;
+  for (const c of plan) if (c.s >= s) v = Math.min(v, Math.sqrt(c.v * c.v + 2 * PLAN_DECEL * (c.s - s)));
+  return v;
+}
+
+/** How far along the route's polyline the point (x, z) is. */
+export function alongRoute(rt, x, z) {
+  const pts = rt.points;
+  let best = Infinity, at = 0, acc = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az) || 1e-6;
+    const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / (L * L)));
+    const d = Math.hypot(x - (ax + (bx - ax) * t), z - (az + (bz - az) * t));
+    if (d < best) { best = d; at = acc + L * t; }
+    acc += L;
+  }
+  return at;
 }

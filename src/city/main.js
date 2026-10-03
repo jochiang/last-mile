@@ -1,6 +1,6 @@
 // Last Mile: the delivery game loop, HUD, minimap and speed lines.
 import { buildCity, X, NB, CURB } from "./map.js";
-import { route, nextTurn } from "./gps.js";
+import { route, nextTurn, speedPlan, allowedSpeed, alongRoute } from "./gps.js";
 import { makeCityCar, stepCityCar, resetCityCar } from "./world.js";
 import { makeShift, stepShift, rating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
@@ -43,8 +43,9 @@ function tick() {
   const o = shift.order;
   if (o && (++rtT >= 15 || !rt)) {
     rtT = 0;
-    rt = route(city, car.x, car.z, car.h, o.phase === "pickup" ? o.rest : o.cust);
-    view.setRoute(rt.points);
+    rt = route(city, car.x, car.z, car.h, o.phase === "pickup" ? o.rest : o.cust, Math.max(0, car.u));
+    rt.plan = speedPlan(rt);
+    view.setRoute(rt.points, rt.plan);
   }
   if (shift.over) endShift();
 }
@@ -223,6 +224,12 @@ function loop(now) {
     speed: Math.hypot(car.vx, car.vz), u: car.u, slip: car.slip, drifting: car.drifting, off: car.off, delta: car.delta,
     gLat: car.gLat, gLong: car.gLong, cond: car.cond, reverse: car.reverse,
   };
+  // before drawing: a freshly re-routed line has no colours yet
+  if (rt && running) {
+    // colour the line against where the car is now along it (it was laid from where the car was)
+    const sCar = alongRoute(rt, car.x, car.z);
+    view.colorRoute(Math.hypot(car.vx, car.vz), sCar, (plan, s) => (s < sCar ? Infinity : allowedSpeed(plan, s)));
+  }
   view.frame(pose, dt, events, {
     route: running && rt,
     pickup: o && o.phase === "pickup" ? { x: o.rest.x, z: o.rest.z, inZone: o.inZone } : null,
