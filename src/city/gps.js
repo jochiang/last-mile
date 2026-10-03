@@ -3,13 +3,20 @@
 
 import { projT } from "./map.js";
 
-/** The street edge nearest (x, z), and where along it. */
-export function nearestEdge(city, x, z) {
-  let best = null, bd = Infinity;
+/** The street edge nearest (x, z), and where along it. With a heading h, streets running the way
+ *  you're going win ties: in the middle of an intersection you're as close to the crossing street
+ *  as to your own, and picking it made the line snap sideways (user, 2026-10-03). */
+export function nearestEdge(city, x, z, h = null) {
+  let best = null, bs = Infinity;
   for (const e of city.edges) {
     const t = projT(e, x, z), px = e.ax + ((e.bx - e.ax) * t) / e.len, pz = e.az + ((e.bz - e.az) * t) / e.len;
     const d = Math.hypot(x - px, z - pz);
-    if (d < bd) { bd = d; best = { e, t, d, px, pz }; }
+    let score = d;
+    if (h !== null) {
+      const cos = Math.abs(((e.bx - e.ax) * Math.sin(h) + (e.bz - e.az) * Math.cos(h)) / e.len);
+      score += (1 - cos) * 12;
+    }
+    if (score < bs) { bs = score; best = { e, t, d, px, pz }; }
   }
   return best;
 }
@@ -22,7 +29,7 @@ const uturnCost = (speed) => 90 + speed * 6;
  *  Returns { points: [[x, z]...], length }. */
 export function route(city, x, z, h, dest, speed = 0) {
   const UTURN = uturnCost(speed);
-  const s = nearestEdge(city, x, z), e = s.e;
+  const s = nearestEdge(city, x, z, h), e = s.e;
   // which way along the edge is the car facing? (+1 = toward b)
   const fx = Math.sin(h), fz = Math.cos(h), along = (e.bx - e.ax) * fx + (e.bz - e.az) * fz >= 0 ? 1 : -1;
   const de = dest.edge;

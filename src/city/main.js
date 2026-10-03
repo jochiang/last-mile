@@ -57,7 +57,9 @@ function tick() {
   const o = shift.order;
   if (o && (++rtT >= 15 || !rt)) {
     rtT = 0;
-    rt = route(city, car.x, car.z, car.h, o.phase === "pickup" ? o.rest : o.cust, Math.max(0, car.u));
+    // route along the way the car is actually travelling (a slide points the nose elsewhere)
+    const sp = Math.hypot(car.vx, car.vz), dirH = sp > 3 ? Math.atan2(car.vx, car.vz) : car.h;
+    rt = route(city, car.x, car.z, dirH, o.phase === "pickup" ? o.rest : o.cust, Math.max(0, car.u));
     rt.plan = speedPlan(rt);
     view.setRoute(rt.points, rt.plan);
   }
