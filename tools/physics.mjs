@@ -72,4 +72,10 @@ check("holding steady stays steady", Math.abs(steady.ratio - 1) < 0.05 && steady
       hitT < 0 ? "never hit the wall" : okT < 0 ? "not straight after 6 s" : `${((okT - hitT) / 60).toFixed(2)} s after the hit`);
   }
 }
+{ // running wide onto the grass at 144 km/h: it should cost time, not wreck you
+  const c = fresh(); c.u = 40;
+  run(c, (t, c) => { c.offAmt = 1; return { steer: 0.3, throttle: 1, brake: 0 }; }, 60, (t, c) => center(c));
+  const after = spd(c), slide = Math.abs(c.slipR);
+  check("a second on the grass at full gas", after > 26 && after < 36 && slide < 0.2, `${(after * 3.6).toFixed(0)} km/h after 1 s (from 144), rear slip ${(slide * 57.3).toFixed(0)} deg`);
+}
 console.log(ok ? "all physics checks pass" : "SOME PHYSICS CHECKS FAILED");

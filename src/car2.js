@@ -9,15 +9,16 @@
 // Body frame: u forward, v left, r yaw rate (+ = turning left, the heading h rising).
 // Input: { steer: -1..1 (+ = right), throttle: 0..1, brake: 0..1 }
 
-import { locate, ROAD, WALL } from "./track.js";
+import { locate, ROAD, WALL, KERB } from "./track.js";
 import { DT } from "./car.js";
 
 export const P = {
   m: 1200, Iz: 1750, a: 1.2, b: 1.4, hcg: 0.55, g: 9.81,
-  mu: 1.85, muOff: 0.9, B: 20, C: 1.4,        // tyre peak grip (peaks at ~6 deg of slip); a simplified Pacejka curve
+  mu: 1.85, muOff: 1.55, B: 20, C: 1.4,        // tyre peak grip (peaks at ~6 deg of slip); a simplified Pacejka curve
   rearGrip: 1.2, BR: 26, CR: 1.25,            // rear: more grip, stiffer, gentler past the peak. Rear
                                               // stiffness per kg must beat the front's or the car oversteers
-  power: 210000, fMax: 13500, drag: 1.35, roll: 30, rollOff: 260,
+  power: 210000, fMax: 13500, drag: 1.35, roll: 30,
+  grassV: 20, grassDrag: 450,                 // grass pulls you down toward ~110 km/h at full gas (N per m/s over), it doesn't anchor you
   brakeMax: 1.5, brakeRear: 0.8,              // total brake force in g; the rear gets this much of its share of
                                               // the load (a proportioning valve: the fronts lock first, braking stays stable)
   steerMax: 0.6, steerSpeed: 15.5,             // lock shrinks with speed, ~what the tyres can use: steerMax / (1 + (u / steerSpeed)^2)
@@ -47,7 +48,8 @@ export function stepCar2(c, inp, tr, p = P) {
   const L = p.a + p.b, W = p.m * p.g, dt = DT / p.sub;
   const lock = p.steerMax / (1 + (c.u / p.steerSpeed) ** 2), target = -inp.steer * lock;
   c.delta += clamp(target - c.delta, -p.steerRate * lock * DT, p.steerRate * lock * DT);
-  const mu = c.off ? p.muOff : p.mu;
+  const og = c.offAmt || 0;   // 0 = on the road, 1 = fully on the grass (blended over the edge)
+  const mu = p.mu + (p.muOff - p.mu) * og;
   const thr = clamp(inp.throttle, 0, 1), brk = clamp(inp.brake, 0, 1);
 
   for (let s = 0; s < p.sub; s++) {
@@ -79,7 +81,8 @@ export function stepCar2(c, inp, tr, p = P) {
     // into the body frame
     const cd = Math.cos(c.delta), sd = Math.sin(c.delta);
     const FxF = fxF * cd - fyF * sd, FyF = fxF * sd + fyF * cd;
-    const resist = p.drag * c.u * Math.abs(c.u) + (c.off ? p.rollOff : p.roll) * c.u;
+    const grass = og * p.grassDrag * Math.max(0, c.u - p.grassV);
+    const resist = p.drag * c.u * Math.abs(c.u) + p.roll * c.u + grass;
     const Fx = FxF + fxR - resist, Fy = FyF + fyR;
     const Mz = p.a * FyF - p.b * fyR;
     const u0 = c.u;
@@ -87,7 +90,8 @@ export function stepCar2(c, inp, tr, p = P) {
     c.v += (Fy / p.m - c.u * c.r) * dt;
     c.r += (Mz / p.Iz) * dt;
     if (u0 >= 0 && c.u < 0 && thr < 0.05) c.u = 0;   // brakes stop the car, they don't reverse it
-    c.ax += (Fx / p.m - c.ax) * (1 - Math.exp(-dt / p.loadLag));
+    // grass drag doesn't pitch the car (it would lighten the rear and spin you, which isn't fun)
+    c.ax += ((Fx + grass) / p.m - c.ax) * (1 - Math.exp(-dt / p.loadLag));
     c.h += c.r * dt;
     const sh = Math.sin(c.h), ch = Math.cos(c.h);
     c.vx = sh * c.u + ch * c.v; c.vz = ch * c.u - sh * c.v;
@@ -104,7 +108,9 @@ export function stepCar2(c, inp, tr, p = P) {
   // the track: grass and the barrier
   locate(tr, c.x, c.z, c.i, q);
   c.i = q.i; c.d = q.d;
-  c.off = !tr.open && Math.abs(q.d) > ROAD + 0.6;   // tr.open: a test plane with no edges
+  // kerbs count as road; the grass takes hold over the next metre and a half (tr.open: a test plane)
+  c.offAmt = tr.open ? 0 : Math.max(0, Math.min(1, (Math.abs(q.d) - ROAD - KERB + 0.5) / 1.5));
+  c.off = c.offAmt > 0.5;
   c.wallT = Math.max(0, c.wallT - DT);
   if (!tr.open && Math.abs(q.d) > WALL - HALF_W) {
     const side = Math.sign(q.d), nx = tr.nx[q.i] * side, nz = tr.nz[q.i] * side;
