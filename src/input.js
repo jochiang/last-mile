@@ -10,8 +10,13 @@ export const MODES = ["drag", "tilt", "stick"];
 export const SETTINGS_KEY = "tr.settings.v1";
 
 export function loadSettings() {
-  const def = { mode: "drag", dragRange: 70, tiltLock: 22, tiltInvert: false };
-  try { return { ...def, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; } catch { return def; }
+  // drag defaults borrow the stick's feel (user, 2026-10-02): 60 px throw, a resting zone in the middle
+  const def = { mode: "drag", dragRange: 60, dragDead: 0.1, dragCurve: 1.3, tiltLock: 22, tiltInvert: false };
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if (saved.dragDead === undefined) delete saved.dragRange;   // settings from before the drag tuning
+    return { ...def, ...saved };
+  } catch { return def; }
 }
 export function saveSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {} }
 
@@ -99,8 +104,9 @@ export function createInput(zone, buttons, settings) {
 
     let touch = 0;
     if (settings.mode === "drag" && st.steerPtr !== null) {
-      const v = (st.x - st.ox) / settings.dragRange;
-      touch = Math.abs(v) < 0.03 ? 0 : Math.max(-1, Math.min(1, v));
+      // a resting zone around where the thumb landed, then a curve: fine near centre, quick to full lock
+      const v = Math.min(1, Math.abs(st.x - st.ox) / settings.dragRange), dz = settings.dragDead;
+      touch = v <= dz ? 0 : Math.sign(st.x - st.ox) * Math.pow((v - dz) / (1 - dz), settings.dragCurve);
     } else if (settings.mode === "stick" && st.steerPtr !== null) {
       let dx = (st.x - st.ox) / STICK_R, dy = (st.y - st.oy) / STICK_R;
       const m = Math.hypot(dx, dy);

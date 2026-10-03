@@ -93,7 +93,8 @@ function knob() {
     const R = settings.dragRange;
     k.style.left = st.ox + "px"; k.style.top = st.y + "px";
     ring.style.display = "none";
-    Object.assign(rail.style, { display: "block", width: 2 * R + "px", left: -R + "px" });
+    Object.assign(rail.style, { display: "block", width: 2 * R + "px", left: -R + "px",
+      background: `linear-gradient(90deg, rgba(255,255,255,.35) ${50 - settings.dragDead * 50}%, rgba(255,255,255,.12) ${50 - settings.dragDead * 50}% ${50 + settings.dragDead * 50}%, rgba(255,255,255,.35) ${50 + settings.dragDead * 50}%)` });
     dot.style.left = Math.max(-R, Math.min(R, st.x - st.ox)) + "px"; dot.style.top = "0px";
   }
 }
@@ -135,6 +136,8 @@ function renderMenu() {
   $("opt-drag").style.display = settings.mode === "drag" ? "" : "none";
   $("opt-tilt").style.display = settings.mode === "tilt" ? "" : "none";
   $("dragRange").value = settings.dragRange; $("dragRangeV").textContent = settings.dragRange + " px";
+  $("dragDead").value = settings.dragDead; $("dragDeadV").textContent = Math.round(settings.dragDead * 100) + "%";
+  $("dragCurve").value = settings.dragCurve; $("dragCurveV").textContent = settings.dragCurve === 1 ? "linear" : "×" + settings.dragCurve.toFixed(1);
   $("tiltLock").value = settings.tiltLock; $("tiltLockV").textContent = settings.tiltLock + "°";
   $("tiltInvert").checked = settings.tiltInvert;
   $("modename").textContent = MODE_INFO[settings.mode][0].toUpperCase();
@@ -164,7 +167,7 @@ $("modes").addEventListener("click", async (e) => {
   }
   renderMenu();
 });
-for (const [id, key] of [["dragRange", "dragRange"], ["tiltLock", "tiltLock"]]) {
+for (const [id, key] of [["dragRange", "dragRange"], ["dragDead", "dragDead"], ["dragCurve", "dragCurve"], ["tiltLock", "tiltLock"]]) {
   $(id).addEventListener("input", (e) => { settings[key] = +e.target.value; saveSettings(settings); renderMenu(); });
 }
 $("tiltInvert").addEventListener("change", (e) => { settings.tiltInvert = e.target.checked; saveSettings(settings); });

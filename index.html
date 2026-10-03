@@ -91,7 +91,11 @@
     <h1>TOUCH RACER</h1>
     <div class="muted">A steering test. It drives itself forward; you steer, drift and brake. Do a few laps with each scheme and compare the times.</div>
     <div class="modes" id="modes"></div>
-    <div class="row" id="opt-drag">Drag range <input type="range" id="dragRange" min="35" max="140" step="5"> <span id="dragRangeV"></span></div>
+    <div id="opt-drag">
+      <div class="row">Range <input type="range" id="dragRange" min="30" max="140" step="5"> <span id="dragRangeV"></span></div>
+      <div class="row">Centre zone <input type="range" id="dragDead" min="0" max="0.3" step="0.02"> <span id="dragDeadV"></span></div>
+      <div class="row">Curve <input type="range" id="dragCurve" min="1" max="2.2" step="0.1"> <span id="dragCurveV"></span></div>
+    </div>
     <div class="row" id="opt-tilt">Full lock at <input type="range" id="tiltLock" min="10" max="40" step="1"> <span id="tiltLockV"></span>
       <button class="sm" id="recenter">Recenter</button> <label><input type="checkbox" id="tiltInvert"> invert</label></div>
     <div id="msg"></div>
