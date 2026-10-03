@@ -90,9 +90,9 @@ export function createAudio() {
     ping() { tone(1318, 0.12, { gain: 0.306 }); tone(1760, 0.25, { gain: 0.272, at: 0.09 }); },
     pickup() { tone(659, 0.12, { type: "triangle", gain: 0.425 }); tone(988, 0.25, { type: "triangle", gain: 0.425, at: 0.08 }); },
     kaching() {
-      burst(0.05, { type: "highpass", freq: 2500, gain: 0.35 });
-      for (const [f, at] of [[2093, 0.04], [2637, 0.1], [3136, 0.16]]) tone(f, 0.6, { gain: 0.12, at });
-      tone(1046, 0.5, { type: "triangle", gain: 0.12, at: 0.04 });
+      burst(0.05, { type: "highpass", freq: 2500, gain: 0.55 });
+      for (const [f, at] of [[2093, 0.04], [2637, 0.1], [3136, 0.16]]) tone(f, 0.6, { gain: 0.2, at });
+      tone(1046, 0.5, { type: "triangle", gain: 0.2, at: 0.04 });
     },
     sad() { tone(392, 0.25, { type: "triangle", gain: 0.34 }); tone(311, 0.45, { type: "triangle", gain: 0.34, at: 0.2 }); },
     tick(urgent) { tone(urgent ? 1900 : 1500, 0.04, { type: "square", gain: 0.102 }); },
