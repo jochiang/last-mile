@@ -3,9 +3,12 @@
 // mods (each bought once, reroll for a little more each time). Damage and your rating carry over.
 
 import { P } from "../car2.js";
+import { HISTORY, avgRating, SHIFT } from "./shift.js";
 
 export const ECON = {
-  bill: (day) => 18 + 7 * (day - 1),     // the car payment, due after every shift
+  // the car payment, due after every shift: small while you learn the district, steep later
+  bill: (day) => Math.round(15 + 3 * (day - 1) + 0.6 * (day - 1) ** 2),
+  signing: 40,                           // starting cash
   repairPerPct: 0.5,                     // $ per percentage point of condition
   rerollBase: 4, rerollStep: 2,
   offers: 4,
@@ -39,7 +42,7 @@ export const modById = Object.fromEntries(MODS.map((m) => [m.id, m]));
 function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); }
 
 export function makeRun(seed = Date.now() % 100000 + 1) {
-  return { seed, day: 1, cash: 0, cond: 1, ratings: [5, 5, 5, 5, 4], mods: [], offers: [], rerolls: 0, over: null, log: [], earned: 0, R: null };
+  return { seed, day: 1, cash: ECON.signing, cond: 1, ratings: HISTORY(), probation: false, mods: [], offers: [], rerolls: 0, over: null, log: [], earned: 0, R: null };
 }
 const R = (run) => (run.R ||= rng(run.seed * 31 + run.day * 7 + run.rerolls));
 
@@ -85,12 +88,15 @@ export function settleShift(run, shift, car) {
   const bill = ECON.bill(run.day);
   run.cash += shift.money; run.earned += shift.money;
   run.cond = car.cond;
-  run.ratings = shift.ratings.slice(-10);
+  run.ratings = shift.ratings.slice(-SHIFT.memory);
   run.cash -= bill;
-  const day = { day: run.day, earned: shift.money, bill, jobs: shift.jobs, cash: run.cash };
+  // the rating is judged at the end of the day: under the line is probation, twice running is the end
+  const r = avgRating(run.ratings), low = r < SHIFT.deactivate;
+  const day = { day: run.day, earned: shift.money, bill, jobs: shift.jobs, cash: run.cash, rating: r, probation: low && !run.probation };
   run.log.push(day);
-  if (shift.over === "deactivated") run.over = "deactivated";
+  if (low && run.probation) run.over = "deactivated";
   else if (run.cash < 0) run.over = "repo";
+  run.probation = low;
   if (!run.over) { run.day++; run.rerolls = 0; rollOffers(run); }
   return day;
 }

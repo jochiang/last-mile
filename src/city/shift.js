@@ -1,6 +1,7 @@
 // A shift: one order at a time. Drive to the restaurant, stop in its zone; drive to the customer,
 // stop in theirs. The tip drains as the clock runs; drinks spill under hard driving and knocks.
-// Your rating is your health: bad deliveries drag it down, and below the line you're deactivated.
+// Your rating is your health: bad deliveries drag it down. It's judged at the end of the day (run.js):
+// under the line once is probation, twice running is deactivation.
 
 import { placeDistance } from "./gps.js";
 import { DT } from "../car.js";
@@ -11,20 +12,22 @@ export const SHIFT = {
   pace: 13, slack: 10,     // the clock: street distance at this speed (m/s), plus slack seconds
   base: 3, perKm: 9, tipMax: 7,
   spillG: 0.9, spillRate: 0.12, spillHit: 0.02,     // drinks: g over this, per second; and per m/s of impact
-  deactivate: 4.0, minJobs: 3,
+  deactivate: 4.0, memory: 20,   // the rating: average of the last `memory` deliveries
 };
 
 function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); }
 
 // fx: the run's mods (run.js effects().fx); ratings carry over from earlier shifts
-export function makeShift(city, seed = 1, { ratings = [5, 5, 5, 5, 4], fx = null } = {}) {
+export const HISTORY = () => [...Array(16).fill(5), 4, 4, 4, 4];   // a new driver's 4.8, as if from earlier gigs
+export function makeShift(city, seed = 1, { ratings = HISTORY(), fx = null } = {}) {
   return {
     t: 0, money: 0, ratings: ratings.slice(), jobs: 0, log: [], over: null, order: null, R: rng(seed), events: [],
     fx: fx || { tipMul: 1, timeMul: 1, spillMul: 1, starBonus: 0, lateForgive: false },
   };
 }
 
-export const rating = (sh) => sh.ratings.slice(-10).reduce((a, b) => a + b, 0) / Math.min(10, sh.ratings.length);
+export const avgRating = (rs) => { const r = rs.slice(-SHIFT.memory); return r.reduce((a, b) => a + b, 0) / r.length; };
+export const rating = (sh) => avgRating(sh.ratings);
 
 function newOrder(sh, city, car) {
   const R = sh.R;
@@ -78,7 +81,8 @@ export function stepShift(sh, city, car) {
 function deliver(sh) {
   const o = sh.order, late = -o.left, quality = 1 - o.spill;
   const tip = late > 0 ? 0 : SHIFT.tipMax * (o.left / o.time) * quality * sh.fx.tipMul;
-  let stars = late <= 0 && quality >= 0.75 ? 5 : late < 15 && quality >= 0.5 ? 4 : late < 45 && quality >= 0.25 ? 3 : 1;
+  // gentle (user was deactivated on day 2): nothing under 2 stars unless it's very late or mostly spilled
+  let stars = late <= 0 && quality >= 0.75 ? 5 : late < 20 && quality >= 0.5 ? 4 : late < 60 && quality >= 0.25 ? 3 : late < 120 && quality >= 0.1 ? 2 : 1;
   if (late > 0 && sh.fx.lateForgive) stars = Math.min(5, stars + 1);
   stars = Math.min(5, stars + sh.fx.starBonus);
   const earned = o.pay * (0.5 + 0.5 * quality) + tip;
@@ -88,5 +92,4 @@ function deliver(sh) {
   sh.log.push(entry);
   sh.events.push({ type: "delivered", ...entry });
   sh.order = null;
-  if (sh.jobs >= SHIFT.minJobs && rating(sh) < SHIFT.deactivate) sh.over = "deactivated";
 }

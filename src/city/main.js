@@ -2,7 +2,7 @@
 import { buildCity, X, NB, CURB } from "./map.js";
 import { route, nextTurn, speedPlan, allowedSpeed, alongRoute } from "./gps.js";
 import { makeCityCar, stepCityCar, resetCityCar } from "./world.js";
-import { makeShift, stepShift, rating, SHIFT } from "./shift.js";
+import { makeShift, stepShift, rating, avgRating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
 import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON } from "./run.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
@@ -83,7 +83,7 @@ function hud() {
   $("clock").textContent = fmt(Math.max(0, SHIFT.length - shift.t));
   $("money").textContent = run ? `$${shift.money.toFixed(2)} of $${ECON.bill(run.day)} bill · day ${run.day}` : `$${shift.money.toFixed(2)}`;
   $("money").style.color = run && run.cash + shift.money < ECON.bill(run.day) ? "#ffb0a0" : "";
-  $("rating").textContent = `★ ${rating(shift).toFixed(2)}`;
+  $("rating").textContent = `★ ${rating(shift).toFixed(2)}${run && run.probation ? " · PROBATION" : ""}`;
   $("rating").style.color = rating(shift) < 4.3 ? "#ff8a7a" : "#ffe07a";
   if (o) {
     const pick = o.phase === "pickup";
@@ -267,7 +267,7 @@ const condBar = (c) => `<div class="bar"><span style="width:${c * 100}%;backgrou
 
 function titleScreen() {
   return `<h1>LAST MILE <small>delivery roguelike prototype</small></h1>
-    <div class="muted">Pick up at the orange beacon, deliver to the green one: stop inside the circle. Tips drain while the clock runs; drinks spill if you throw the car around. One shift a day, then the car payment comes out, and it goes up every day. Miss it and the car's repossessed; let your rating fall under 4.0 and you're deactivated. The blue line is the GPS; the alleys, the lot and the park are faster, and it doesn't know them.</div>
+    <div class="muted">Pick up at the orange beacon, deliver to the green one: stop inside the circle. Tips drain while the clock runs; drinks spill if you throw the car around. One shift a day, then the car payment comes out, and it goes up every day. Miss it and the car's repossessed. Finish a day with your rating under 4.0 and you're on probation; do it twice running and you're deactivated. The blue line is the GPS; the alleys, the lot and the park are faster, and it doesn't know them.</div>
     <div class="stats"><div><b>${best.days ? `${best.days} days` : "–"}</b><span>BEST RUN</span></div><div><b>${best.earned ? money(best.earned) : "–"}</b><span>MOST EARNED</span></div></div>
     <div class="row">${run && !run.over ? `<button class="go" data-act="continue">CONTINUE · DAY ${run.day}</button> <button class="sm" data-act="newrun">New run</button>` : `<button class="go" data-act="newrun">START RUN</button>`}</div>`;
 }
@@ -275,7 +275,7 @@ function titleScreen() {
 function garageScreen(last) {
   const { fx } = effects(run);
   const fixTo = (t) => repairCost(run, t);
-  const r = run.ratings.reduce((a, b) => a + b, 0) / run.ratings.length;
+  const r = avgRating(run.ratings);
   const offers = run.offers.map((id) => {
     const m = modById[id];
     return `<div class="mod"><span class="tag ${m.kind}">${m.kind === "perf" ? "PERFORMANCE" : m.kind === "cargo" ? "CARGO" : "STYLE"}</span><b>${m.name}</b><span class="d">${m.desc}</span>
@@ -283,6 +283,7 @@ function garageScreen(last) {
   }).join("") || `<div class="muted">Sold out.</div>`;
   return `<h2 class="big">DAY ${run.day} · GARAGE</h2>
     ${last ? `<div class="muted">Yesterday: ${last.jobs} deliveries, earned ${money(last.earned)}, car payment ${money(last.bill)}.</div>` : ""}
+    ${run.probation ? `<div style="color:#ffb0a0;font-size:13px;margin:4px 0">⚠ PROBATION: your rating finished under 4.0. Finish today under it again and you're deactivated.</div>` : ""}
     <div class="stats"><div><b>${money(run.cash)}</b><span>CASH</span></div><div><b>${money(ECON.bill(run.day))}</b><span>PAYMENT AFTER TODAY</span></div><div><b>★ ${r.toFixed(2)}</b><span>RATING</span></div></div>
     <div class="repair"><b>Car ${Math.round(run.cond * 100)}%</b> ${condBar(run.cond)}
       ${run.cond < 0.995 ? `<button class="sm" data-act="repair" data-to="${Math.min(1, run.cond + 0.25)}" ${fixTo(Math.min(1, run.cond + 0.25)) > run.cash ? "disabled" : ""}>Patch +25% ${money(fixTo(Math.min(1, run.cond + 0.25)))}</button>
