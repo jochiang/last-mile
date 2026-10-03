@@ -41,12 +41,12 @@
   #pause { position: fixed; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 44px; height: 44px; border-radius: 10px;
     background: rgba(16,21,28,.35); border: 2px solid rgba(255,255,255,.6); color: #fff; font-size: 18px; }
   /* the pedal strip: gas on top, both in the middle band, brake at the bottom */
-  #pedal { position: fixed; right: max(18px, env(safe-area-inset-right)); top: 16%; bottom: max(14px, env(safe-area-inset-bottom)); width: 104px;
+  #pedal { position: fixed; right: max(22px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); height: 150px; width: 92px;
     border-radius: 20px; border: 3px solid rgba(255,255,255,.7); touch-action: none; overflow: hidden;
     background: linear-gradient(to bottom, rgba(60,200,90,.6) 0%, rgba(60,200,90,.6) 10%, rgba(60,200,90,.3) 38%,
       rgba(255,190,40,.45) 38%, rgba(255,190,40,.45) 60%, rgba(230,60,50,.3) 60%, rgba(230,60,50,.65) 90%, rgba(230,60,50,.65) 100%); }
-  #pedal .lab { position: absolute; left: 0; right: 0; text-align: center; font-weight: 800; font-size: 13px; letter-spacing: .06em; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.45); }
-  #pedal .gas { top: 9%; } #pedal .both { top: 46%; } #pedal .brk { top: 80%; }
+  #pedal .lab { position: absolute; left: 0; right: 0; text-align: center; font-weight: 800; font-size: 11px; line-height: 1; letter-spacing: .06em; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.45); }
+  #pedal .gas { top: 15%; } #pedal .both { top: 45%; } #pedal .brk { top: 76%; }
   #pedal i { position: absolute; left: 0; right: 0; height: 4px; margin-top: -2px; background: #fff; display: none; box-shadow: 0 0 6px #fff; }
   #pedhud { display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; font-size: 10px; letter-spacing: .05em; }
   #pedhud .pb { width: 56px; height: 8px; background: rgba(0,0,0,.35); border-radius: 4px; overflow: hidden; }
@@ -116,6 +116,7 @@
       <div class="row">Centre zone <input type="range" id="dragDead" min="0" max="0.3" step="0.02"> <span id="dragDeadV"></span></div>
       <div class="row">Curve <input type="range" id="dragCurve" min="1" max="2.2" step="0.1"> <span id="dragCurveV"></span></div>
     </div>
+    <div class="row" id="opt-pedal">Pedal strip height <input type="range" id="pedalH" min="80" max="260" step="10"> <span id="pedalHV"></span></div>
     <div class="row" id="opt-tilt">Full lock at <input type="range" id="tiltLock" min="10" max="40" step="1"> <span id="tiltLockV"></span>
       <button class="sm" id="recenter">Recenter</button> <label><input type="checkbox" id="tiltInvert"> invert</label></div>
     <div id="msg"></div>

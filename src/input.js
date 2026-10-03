@@ -13,8 +13,10 @@ export const MODES = ["drag", "tilt", "stick"];
 export const SETTINGS_KEY = "tr.settings.v1";
 
 export function loadSettings() {
+  // pedalH: the strip's height in px. Short: the thumb rocks between gas and brake (user, 2026-10-03:
+  // full-height swipes were "awful")
   // drag defaults borrow the stick's feel (user, 2026-10-02): 60 px throw, a resting zone in the middle
-  const def = { model: "pedals", mode: "drag", dragRange: 60, dragDead: 0.1, dragCurve: 1.3, tiltLock: 22, tiltInvert: false };
+  const def = { model: "pedals", mode: "drag", dragRange: 60, dragDead: 0.1, dragCurve: 1.3, pedalH: 150, tiltLock: 22, tiltInvert: false };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     if (saved.dragDead === undefined) delete saved.dragRange;   // settings from before the drag tuning

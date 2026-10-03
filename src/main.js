@@ -97,6 +97,7 @@ function hud(c) {
 function applyModel() {
   const pedals = settings.model === "pedals";
   $("pedal").style.display = pedals ? "" : "none";
+  $("pedal").style.height = settings.pedalH + "px";
   $("drift").style.display = $("brake").style.display = pedals ? "none" : "";
   $("charge").style.display = pedals ? "none" : "";
   $("pedhud").style.display = pedals ? "" : "none";
@@ -171,6 +172,8 @@ function renderMenu() {
   $("dragRange").value = settings.dragRange; $("dragRangeV").textContent = settings.dragRange + " px";
   $("dragDead").value = settings.dragDead; $("dragDeadV").textContent = Math.round(settings.dragDead * 100) + "%";
   $("dragCurve").value = settings.dragCurve; $("dragCurveV").textContent = settings.dragCurve === 1 ? "linear" : "×" + settings.dragCurve.toFixed(1);
+  $("opt-pedal").style.display = settings.model === "pedals" ? "" : "none";
+  $("pedalH").value = settings.pedalH; $("pedalHV").textContent = settings.pedalH + " px";
   $("tiltLock").value = settings.tiltLock; $("tiltLockV").textContent = settings.tiltLock + "°";
   $("tiltInvert").checked = settings.tiltInvert;
   $("modename").textContent = `${MODEL_NAME[settings.model]} · ${MODE_INFO[settings.mode][0]}`.toUpperCase();
@@ -208,8 +211,8 @@ $("modes").addEventListener("click", async (e) => {
   }
   renderMenu();
 });
-for (const [id, key] of [["dragRange", "dragRange"], ["dragDead", "dragDead"], ["dragCurve", "dragCurve"], ["tiltLock", "tiltLock"]]) {
-  $(id).addEventListener("input", (e) => { settings[key] = +e.target.value; saveSettings(settings); renderMenu(); });
+for (const [id, key] of [["dragRange", "dragRange"], ["dragDead", "dragDead"], ["dragCurve", "dragCurve"], ["pedalH", "pedalH"], ["tiltLock", "tiltLock"]]) {
+  $(id).addEventListener("input", (e) => { settings[key] = +e.target.value; saveSettings(settings); renderMenu(); applyModel(); });
 }
 $("tiltInvert").addEventListener("change", (e) => { settings.tiltInvert = e.target.checked; saveSettings(settings); });
 $("recenter").addEventListener("click", () => { input.recenter(); $("msg").textContent = "Centred."; });
