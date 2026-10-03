@@ -24,7 +24,7 @@ export const P = {
   steerRate: 4,                               // full locks per second: the wheel can't snap, whatever the thumb does
   lockFloor: 0.35,                            // side grip left on a locked or spinning axle
   loadLag: 0.1,                               // seconds for weight to move between axles
-  loadSens: 0.3,                              // grip per kg falls as load rises (real tyres): tempers weight transfer
+  loadSens: 0.4,                              // grip per kg falls as load rises (real tyres): tempers weight transfer
   sub: 4,                                     // substeps per tick (tyres are stiff)
 };
 const HALF_W = 1.0;
