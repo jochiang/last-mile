@@ -37,7 +37,7 @@ function colored(g, hex) {
   return g;
 }
 
-function buildStatic(city) {
+function buildStatic(city, night) {
   const P = [];
   const b = city.bounds;
   P.push(flat(b.x0, b.z0, b.x1, b.z1, 0, C.asphalt));
@@ -92,7 +92,8 @@ function buildStatic(city) {
   const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   for (const bd of city.buildings) {
     P.push(box(bd.x0, 0, bd.z0, bd.x1, bd.h, bd.z1, bd.color, C.roof));
-    for (let f = 0; f < bd.floors; f++) {
+    // by day, a darker band per floor; at night the windows are their own lit mesh (buildWindows)
+    if (!night) for (let f = 0; f < bd.floors; f++) {
       const y = f * 3.2 + 1.0;
       P.push(box(bd.x0 - 0.06, y, bd.z0 - 0.06, bd.x1 + 0.06, y + 1.3, bd.z1 + 0.06, f === 0 ? 0x2a3442 : C.window));
     }
@@ -123,6 +124,57 @@ function buildStatic(city) {
   return new THREE.Mesh(mergeGeometries(P), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
 }
 
+// Night windows: every floor of every face cut into ~4.5 m panes, some lit warm or cool, the rest
+// dark. Unlit material, so they glow without lights.
+function buildWindows(city) {
+  const pos = [], col = [];
+  let seed = 23;
+  const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const LIT = [0xffd27a, 0xffe6b0, 0xbfe0ff, 0xffb86b], DARK = 0x161c2a;
+  const quad = (ax, az, bx, bz, y0, y1, hex) => {
+    pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y0, az, bx, y1, bz, ax, y1, az);
+    tmpC.setHex(hex);
+    for (let k = 0; k < 6; k++) col.push(tmpC.r, tmpC.g, tmpC.b);
+  };
+  for (const bd of city.buildings) {
+    const o = 0.07;
+    // each face, walked so its front faces outward
+    const faces = [[bd.x0, bd.z1 + o, bd.x1, bd.z1 + o], [bd.x1 + o, bd.z1, bd.x1 + o, bd.z0], [bd.x1, bd.z0 - o, bd.x0, bd.z0 - o], [bd.x0 - o, bd.z0, bd.x0 - o, bd.z1]];
+    const busy = R();   // some buildings are mostly lit, some mostly dark
+    for (let f = 0; f < bd.floors; f++) {
+      const y0 = f * 3.2 + 1.0, y1 = y0 + 1.3;
+      for (const [ax, az, bx, bz] of faces) {
+        const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.round(L / 4.5));
+        for (let k = 0; k < n; k++) {
+          const f0 = k / n + 0.06 / n, f1 = (k + 1) / n - 0.06 / n;
+          const lit = R() < 0.18 + busy * 0.4 || (f === 0 && R() < 0.5);
+          quad(ax + (bx - ax) * f0, az + (bz - az) * f0, ax + (bx - ax) * f1, az + (bz - az) * f1, y0, y1, lit ? LIT[Math.floor(R() * LIT.length)] : DARK);
+        }
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true }));
+}
+
+// a soft round glow for light pools, headlights and underglow
+function glowTexture(stretch = false) {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+  const g = cv.getContext("2d");
+  const grd = stretch ? g.createLinearGradient(0, 128, 0, 0) : g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(stretch ? 1 : 0.45, stretch ? "rgba(255,255,255,0)" : "rgba(255,255,255,.45)"); if (!stretch) grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  if (stretch) {
+    // fade the sides of the headlight beam too
+    const side = g.createLinearGradient(0, 0, 128, 0);
+    side.addColorStop(0, "rgba(0,0,0,1)"); side.addColorStop(0.3, "rgba(0,0,0,0)"); side.addColorStop(0.7, "rgba(0,0,0,0)"); side.addColorStop(1, "rgba(0,0,0,1)");
+    g.globalCompositeOperation = "destination-out"; g.fillStyle = side; g.fillRect(0, 0, 128, 128);
+  }
+  return new THREE.CanvasTexture(cv);
+}
+
 function signMesh(r) {
   const cv = document.createElement("canvas"); cv.width = 512; cv.height = 128;
   const g = cv.getContext("2d");
@@ -151,18 +203,23 @@ function chevronTexture() {
   return t;
 }
 
-export function createCityRenderer(canvas, city) {
+export function createCityRenderer(canvas, city, { night = true } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(C.sky);
-  scene.fog = new THREE.Fog(C.sky, 90, 330);
-  scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x5a5f55, 1.5));
-  const sun = new THREE.DirectionalLight(0xfff4e0, 1.7);
+  // night (user, 2026-10-03): the dark and the fog hide how small the district is, and glowing
+  // things (underglow, neon, beacons, the GPS line) read best in the dark
+  const SKY = night ? 0x0b1124 : C.sky;
+  scene.background = new THREE.Color(SKY);
+  scene.fog = night ? new THREE.Fog(SKY, 35, 230) : new THREE.Fog(SKY, 90, 330);
+  scene.add(night ? new THREE.HemisphereLight(0x5a6aa0, 0x1a1c22, 0.75) : new THREE.HemisphereLight(0xeaf4ff, 0x5a5f55, 1.5));
+  const sun = night ? new THREE.DirectionalLight(0x9fb0ff, 0.45) : new THREE.DirectionalLight(0xfff4e0, 1.7);
   sun.position.set(-60, 140, 90);
   scene.add(sun);
-  scene.add(buildStatic(city));
+  scene.add(buildStatic(city, night));
+  if (night) scene.add(buildWindows(city));
   for (const r of city.restaurants) scene.add(signMesh(r));
+  const add = { blending: THREE.AdditiveBlending, transparent: true, depthWrite: false };
 
   // lampposts: one instanced mesh; knocked-over ones topple and stay down
   const poleGeo = mergeGeometries([
@@ -182,12 +239,46 @@ export function createCityRenderer(canvas, city) {
   });
   scene.add(poles);
   const falling = new Set();
+  // at night: glowing lamp heads, and a pool of light on the road under each
+  let heads = null, pools = null;
+  if (night) {
+    const headGeo = new THREE.BoxGeometry(0.42, 0.2, 0.62).translate(0, 5.2, 1.25);
+    heads = new THREE.InstancedMesh(headGeo, new THREE.MeshBasicMaterial({ color: 0xfff0c0 }), city.poles.length);
+    pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(13, 13).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xa08048, ...add, polygonOffset: true, polygonOffsetFactor: -1 }), city.poles.length);
+    city.poles.forEach((p, i) => {
+      m4.compose(v3.set(p.x, 0, p.z), q4.setFromEuler(e3.set(0, p.yaw, 0)), s3);
+      heads.setMatrixAt(i, m4);
+      // the pool sits under the lamp's head, out over the road
+      m4.compose(v3.set(p.x + Math.sin(p.yaw) * 1.6, 0.09, p.z + Math.cos(p.yaw) * 1.6), q4.identity(), s3);
+      pools.setMatrixAt(i, m4);
+    });
+    pools.frustumCulled = heads.frustumCulled = false;
+    scene.add(heads, pools);
+  }
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
 
   // the car, with a delivery box on the roof
   const car = buildCar(0x2fa6ff);
   const bag = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.75, 1.0), new THREE.MeshLambertMaterial({ color: 0xff7a1a, flatShading: true }));
   bag.position.set(0, 1.68, -0.4);
   car.userData.body.add(bag);
+  // lights: headlamps and tail lamps that glow, a beam on the road ahead at night, and underglow (a mod)
+  for (const x of [-0.65, 0.65]) {
+    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.05), new THREE.MeshBasicMaterial({ color: 0xfff6d8 }));
+    hl.position.set(x, 0.65, 2.11); car.userData.body.add(hl);
+    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.05), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
+    tl.position.set(x, 0.7, -2.11); car.userData.body.add(tl);
+  }
+  if (night) {
+    const beam = new THREE.Mesh(new THREE.PlaneGeometry(9, 22).rotateX(-Math.PI / 2).translate(0, 0.1, 12.5),
+      new THREE.MeshBasicMaterial({ map: glowTexture(true), color: 0x8a8060, ...add }));
+    car.add(beam);
+  }
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 8).rotateX(-Math.PI / 2).translate(0, 0.11, 0),
+    new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xff2bd6, ...add }));
+  glow.visible = false;
+  car.add(glow);
   scene.add(car);
 
   // beacons: a tall translucent column you can see over the buildings, and a ring on the road
@@ -334,8 +425,13 @@ export function createCityRenderer(canvas, city) {
       const ax = new THREE.Vector3(p.fallZ, 0, -p.fallX).normalize();
       q4.setFromEuler(e3.set(0, p.yaw, 0)).premultiply(new THREE.Quaternion().setFromAxisAngle(ax, p.fall));
       m4.compose(v3.set(p.x, 0, p.z), q4, s3);
-      poles.setMatrixAt(city.poles.indexOf(p), m4);
+      const pi = city.poles.indexOf(p);
+      poles.setMatrixAt(pi, m4);
       poles.instanceMatrix.needsUpdate = true;
+      if (heads) {   // the lamp goes out
+        heads.setMatrixAt(pi, zero); pools.setMatrixAt(pi, zero);
+        heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
+      }
       if (p.fall >= Math.PI / 2 - 0.05) falling.delete(p);
     }
 
@@ -360,6 +456,7 @@ export function createCityRenderer(canvas, city) {
       skid.instanceMatrix.needsUpdate = true;
     }
 
+    if (glow.visible) glow.material.opacity = 1;
     // beacons
     for (const [b, p] of [[pickBeacon, view.pickup], [dropBeacon, view.dropoff]]) {
       b.visible = !!p;
@@ -402,5 +499,18 @@ export function createCityRenderer(canvas, city) {
     renderer.render(scene, camera);
   }
 
-  return { resize, frame, setRoute, colorRoute, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
+  function setUnderglow(hex) { glow.visible = !!hex; if (hex) glow.material.color.setHex(hex); }
+  // a new shift: lampposts back up, lights back on
+  function resetPoles() {
+    city.poles.forEach((p, i) => {
+      p.broken = false; p.fall = 0;
+      m4.compose(v3.set(p.x, 0, p.z), q4.setFromEuler(e3.set(0, p.yaw, 0)), s3);
+      poles.setMatrixAt(i, m4);
+      if (heads) { heads.setMatrixAt(i, m4); m4.compose(v3.set(p.x + Math.sin(p.yaw) * 1.6, 0.09, p.z + Math.cos(p.yaw) * 1.6), q4.identity(), s3); pools.setMatrixAt(i, m4); }
+    });
+    falling.clear();
+    poles.instanceMatrix.needsUpdate = true;
+    if (heads) heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
+  }
+  return { resize, frame, setRoute, colorRoute, setUnderglow, resetPoles, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
 }

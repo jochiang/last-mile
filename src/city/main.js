@@ -4,6 +4,7 @@ import { route, nextTurn, speedPlan, allowedSpeed, alongRoute } from "./gps.js";
 import { makeCityCar, stepCityCar, resetCityCar } from "./world.js";
 import { makeShift, stepShift, rating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
+import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON } from "./run.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
 import { DT } from "../car.js";
 
@@ -13,19 +14,32 @@ const settings = loadSettings();
 settings.model = "pedals";
 if (settings.mode === "tilt") settings.mode = "drag";
 const input = createInput($("zone"), { drift: $("drift"), brake: $("brake"), pedal: $("pedal") }, settings);
-const view = createCityRenderer($("c"), city);
+const view = createCityRenderer($("c"), city, { night: settings.night !== false });
 
-const BEST_KEY = "lm.best.v1";
-let best = 0;
-try { best = +localStorage.getItem(BEST_KEY) || 0; } catch {}
+// the run in progress (saved between sessions) and the best run so far
+const RUN_KEY = "lm.run.v1", BEST_KEY = "lm.bestrun.v1";
+let run = null, best = { days: 0, earned: 0 };
+try { const s = localStorage.getItem(RUN_KEY); if (s) run = loadRun(s); } catch {}
+try { best = JSON.parse(localStorage.getItem(BEST_KEY)) || best; } catch {}
+const persist = () => { try { run && !run.over ? localStorage.setItem(RUN_KEY, saveRun(run)) : localStorage.removeItem(RUN_KEY); } catch {} };
 
-let car, shift, rt = null, rtT = 0, running = false, started = false, acc = 0, last = performance.now(), toastT = 0;
+let car, shift, carP, rt = null, rtT = 0, running = false, inShift = false, acc = 0, last = performance.now(), toastT = 0;
 let prev, inp = { steer: 0, throttle: 0, brake: 0 };
 const events = [];
 
 function newShift() {
   car = makeCityCar(city);
-  shift = makeShift(city, (Date.now() & 0xffff) + 1);
+  if (run) {
+    const { fx, p } = effects(run);
+    carP = p;
+    car.cond = run.cond; car.dmgMul = fx.dmgMul; car.bullbar = fx.bullbar;
+    shift = makeShift(city, run.seed * 101 + run.day, { ratings: run.ratings, fx });
+    view.setUnderglow(fx.underglow);
+    view.resetPoles();
+  } else {
+    carP = effects(makeRun(1)).p;
+    shift = makeShift(city, 1);
+  }
   rt = null; prev = snap(car);
   view.snapCamera();
 }
@@ -35,7 +49,7 @@ const lerpAng = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * 
 function tick() {
   prev = snap(car);
   inp = input.read(DT);
-  stepCityCar(car, inp, city);
+  stepCityCar(car, inp, city, carP);
   for (const e of car.events) events.push(e);
   stepShift(shift, city, car);
   for (const e of shift.events) onShiftEvent(e);
@@ -67,7 +81,8 @@ const fmt = (t) => `${t < 0 ? "-" : ""}${Math.floor(Math.abs(t) / 60)}:${String(
 function hud() {
   const o = shift.order;
   $("clock").textContent = fmt(Math.max(0, SHIFT.length - shift.t));
-  $("money").textContent = `$${shift.money.toFixed(2)} · ${shift.jobs} delivered`;
+  $("money").textContent = run ? `$${shift.money.toFixed(2)} of $${ECON.bill(run.day)} bill · day ${run.day}` : `$${shift.money.toFixed(2)}`;
+  $("money").style.color = run && run.cash + shift.money < ECON.bill(run.day) ? "#ffb0a0" : "";
   $("rating").textContent = `★ ${rating(shift).toFixed(2)}`;
   $("rating").style.color = rating(shift) < 4.3 ? "#ff8a7a" : "#ffe07a";
   if (o) {
@@ -242,37 +257,100 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-// --- menu
+// --- screens: title, garage (between shifts), game over. The controls drawer is always below.
 const MODE_INFO = {
   drag: ["Drag", "Thumb down anywhere on the left, slide sideways."],
   stick: ["Stick", "Floating thumbstick."],
 };
-function renderMenu() {
-  $("modes").innerHTML = Object.keys(MODE_INFO).map((m) => `<button class="mode ${settings.mode === m ? "sel" : ""}" data-m="${m}"><b>${MODE_INFO[m][0]}</b><span>${MODE_INFO[m][1]}</span></button>`).join("")
-    + `<div class="mode" style="opacity:.8"><b>Best shift</b><span>${best ? `$${best.toFixed(2)}` : "none yet"}</span></div>`;
-  const drag = settings.mode === "drag";
+const money = (v) => `$${v.toFixed(0)}`;
+const condBar = (c) => `<div class="bar"><span style="width:${c * 100}%;background:${c > 0.6 ? "#9ee08a" : c > 0.3 ? "#ffd27a" : "#ff7a6a"}"></span></div>`;
+
+function titleScreen() {
+  return `<h1>LAST MILE <small>delivery roguelike prototype</small></h1>
+    <div class="muted">Pick up at the orange beacon, deliver to the green one: stop inside the circle. Tips drain while the clock runs; drinks spill if you throw the car around. One shift a day, then the car payment comes out, and it goes up every day. Miss it and the car's repossessed; let your rating fall under 4.0 and you're deactivated. The blue line is the GPS; the alleys, the lot and the park are faster, and it doesn't know them.</div>
+    <div class="stats"><div><b>${best.days ? `${best.days} days` : "–"}</b><span>BEST RUN</span></div><div><b>${best.earned ? money(best.earned) : "–"}</b><span>MOST EARNED</span></div></div>
+    <div class="row">${run && !run.over ? `<button class="go" data-act="continue">CONTINUE · DAY ${run.day}</button> <button class="sm" data-act="newrun">New run</button>` : `<button class="go" data-act="newrun">START RUN</button>`}</div>`;
+}
+
+function garageScreen(last) {
+  const { fx } = effects(run);
+  const fixTo = (t) => repairCost(run, t);
+  const r = run.ratings.reduce((a, b) => a + b, 0) / run.ratings.length;
+  const offers = run.offers.map((id) => {
+    const m = modById[id];
+    return `<div class="mod"><span class="tag ${m.kind}">${m.kind === "perf" ? "PERFORMANCE" : m.kind === "cargo" ? "CARGO" : "STYLE"}</span><b>${m.name}</b><span class="d">${m.desc}</span>
+      <button data-act="buy" data-id="${id}" ${m.price > run.cash ? "disabled" : ""}>${money(m.price)}</button></div>`;
+  }).join("") || `<div class="muted">Sold out.</div>`;
+  return `<h2 class="big">DAY ${run.day} · GARAGE</h2>
+    ${last ? `<div class="muted">Yesterday: ${last.jobs} deliveries, earned ${money(last.earned)}, car payment ${money(last.bill)}.</div>` : ""}
+    <div class="stats"><div><b>${money(run.cash)}</b><span>CASH</span></div><div><b>${money(ECON.bill(run.day))}</b><span>PAYMENT AFTER TODAY</span></div><div><b>★ ${r.toFixed(2)}</b><span>RATING</span></div></div>
+    <div class="repair"><b>Car ${Math.round(run.cond * 100)}%</b> ${condBar(run.cond)}
+      ${run.cond < 0.995 ? `<button class="sm" data-act="repair" data-to="${Math.min(1, run.cond + 0.25)}" ${fixTo(Math.min(1, run.cond + 0.25)) > run.cash ? "disabled" : ""}>Patch +25% ${money(fixTo(Math.min(1, run.cond + 0.25)))}</button>
+        <button class="sm" data-act="repair" data-to="1" ${fixTo(1) > run.cash ? "disabled" : ""}>Full repair ${money(fixTo(1))}</button>` : `<span class="muted">mint</span>`}
+      <span class="muted">${run.cond < 0.6 ? "A beaten car loses power." : ""}${fx.repairMul < 1 ? " Dash cam discount applied." : ""}</span></div>
+    <div class="row" style="justify-content:space-between"><b>Shop</b> <button class="sm" data-act="reroll" ${rerollCost(run) > run.cash ? "disabled" : ""}>Reroll ${money(rerollCost(run))}</button></div>
+    <div class="shop">${offers}</div>
+    ${run.mods.length ? `<div class="chips">${run.mods.map((id) => `<span class="chip">${modById[id].name}</span>`).join("")}</div>` : ""}
+    <div class="row"><button class="go" data-act="start">START DAY ${run.day}</button> <button class="sm" data-act="title">Title</button></div>`;
+}
+
+function overScreen() {
+  const why = run.over === "repo" ? ["REPOSSESSED", "You couldn't make the car payment. The tow truck didn't even honk."]
+    : ["DEACTIVATED", "\"We've noticed your recent ratings don't meet our community standards.\""];
+  const last = run.log[run.log.length - 1];
+  return `<h2 class="big">${why[0]}</h2><div class="muted">${why[1]}</div>
+    <div class="stats"><div><b>${run.day}</b><span>DAYS</span></div><div><b>${money(run.earned)}</b><span>EARNED</span></div><div><b>${run.mods.length}</b><span>MODS</span></div>${last ? `<div><b>${money(last.earned)}</b><span>LAST SHIFT</span></div>` : ""}</div>
+    <details><summary>Last shift</summary><table><tr><th>Order</th><th>To</th><th>Earned</th><th>Tip</th><th>Stars</th><th>Spilled</th></tr>
+    ${shift.log.map((l) => `<tr><td>${l.item}</td><td>${l.to}</td><td>$${l.earned.toFixed(2)}</td><td>$${l.tip.toFixed(2)}</td><td>${l.stars.toFixed(1)}</td><td>${Math.round((1 - l.quality) * 100)}%</td></tr>`).join("")}</table></details>
+    <div class="row"><button class="go" data-act="newrun">NEW RUN</button> <button class="sm" data-act="title">Title</button></div>`;
+}
+
+let curScreen = "title", lastDay = null;
+function show(which) {
+  curScreen = which;
+  $("screen").innerHTML = which === "garage" ? garageScreen(lastDay) : which === "over" ? overScreen() : which === "pause" ? pauseScreen() : titleScreen();
+  renderSettings();
+  $("menu").classList.remove("hidden");
+}
+function pauseScreen() {
+  return `<h2 class="big">PAUSED</h2><div class="muted">Day ${run ? run.day : "–"}. The clock's stopped; the customer's patience isn't (it is, actually).</div>
+    <div class="row"><button class="go" data-act="resume">RESUME</button> <button class="sm" data-act="abandon">Abandon shift</button></div>`;
+}
+function renderSettings() {
+  $("modes").innerHTML = Object.keys(MODE_INFO).map((m) => `<button class="mode ${settings.mode === m ? "sel" : ""}" data-m="${m}"><b>${MODE_INFO[m][0]}</b><span>${MODE_INFO[m][1]}</span></button>`).join("");
   $("dragRange").value = settings.dragRange; $("dragRangeV").textContent = settings.dragRange + "px";
   $("dragDead").value = settings.dragDead; $("dragDeadV").textContent = Math.round(settings.dragDead * 100) + "%";
   $("dragCurve").value = settings.dragCurve; $("dragCurveV").textContent = "×" + (+settings.dragCurve).toFixed(1);
   $("pedalH").value = settings.pedalH; $("pedalHV").textContent = settings.pedalH + "px";
-  for (const id of ["dragRange", "dragDead", "dragRangeV", "dragDeadV", "dragCurve", "dragCurveV"]) $(id).style.opacity = drag ? 1 : 0.35;
   $("pedal").style.height = settings.pedalH + "px";
-  $("resume").style.display = started && !shift.over ? "" : "none";
-  $("go").textContent = started && !shift.over ? "NEW SHIFT" : "START SHIFT";
 }
+$("screen").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const act = b.dataset.act;
+  if (act === "newrun") { run = makeRun(); rollOffers(run); persist(); newShift(); start(); return; }
+  if (act === "continue") { lastDay = run.log[run.log.length - 1] || null; show(run.log.length ? "garage" : "title"); if (!run.log.length) { newShift(); start(); } return; }
+  if (act === "start") { newShift(); start(); return; }
+  if (act === "resume") { start(); return; }
+  if (act === "abandon") { shift.over = "abandoned"; running = false; endShift(); return; }
+  if (act === "title") { show("title"); return; }
+  if (act === "buy") buy(run, b.dataset.id);
+  if (act === "reroll") reroll(run);
+  if (act === "repair") repair(run, +b.dataset.to);
+  persist();
+  show("garage");
+});
 $("modes").addEventListener("click", (e) => {
   const b = e.target.closest(".mode[data-m]");
   if (!b) return;
-  settings.mode = b.dataset.m; saveSettings(settings); renderMenu();
+  settings.mode = b.dataset.m; saveSettings(settings); renderSettings();
 });
 for (const id of ["dragRange", "dragDead", "dragCurve", "pedalH"]) {
-  $(id).addEventListener("input", (e) => { settings[id] = +e.target.value; saveSettings(settings); renderMenu(); });
+  $(id).addEventListener("input", (e) => { settings[id] = +e.target.value; saveSettings(settings); renderSettings(); });
 }
-$("go").addEventListener("click", () => { newShift(); start(); });
-$("resume").addEventListener("click", start);
 $("pause").addEventListener("click", pause);
 addEventListener("keydown", (e) => {
-  if (e.code === "Escape") running ? pause() : start();
+  if (e.code === "Escape") { if (running) pause(); else if (curScreen === "pause") start(); }
   if (e.code === "KeyR" && running) resetCityCar(car, city);
 });
 document.addEventListener("visibilitychange", () => { if (document.hidden && running) pause(); });
@@ -283,32 +361,28 @@ async function start() {
   }
   $("menu").classList.add("hidden");
   input.release();
-  started = true; running = true; last = performance.now(); acc = 0;
+  inShift = true; running = true; last = performance.now(); acc = 0;
 }
 function pause() {
   running = false; input.release();
-  renderMenu();
-  $("menu").classList.remove("hidden");
+  show("pause");
 }
 function endShift() {
-  running = false;
-  const r = rating(shift), lates = shift.log.filter((l) => l.late > 0).length;
-  const isBest = shift.money > best;
-  if (isBest) { best = shift.money; try { localStorage.setItem(BEST_KEY, String(best)); } catch {} }
-  $("summary").style.display = "block";
-  $("summary").innerHTML = `<h2>${shift.over === "deactivated" ? "DEACTIVATED" : "SHIFT OVER"}${isBest ? " · new best" : ""}</h2>
-    <div>$${shift.money.toFixed(2)} from ${shift.jobs} deliveries · rating ★ ${r.toFixed(2)} · ${lates} late · car ${Math.round(car.cond * 100)}%</div>
-    ${shift.over === "deactivated" ? `<div class="muted">"We've noticed your recent ratings don't meet our community standards."</div>` : ""}
-    <details><summary>Deliveries</summary><table><tr><th>Order</th><th>To</th><th>Earned</th><th>Tip</th><th>Stars</th><th>Spilled</th></tr>
-    ${shift.log.map((l) => `<tr><td>${l.item}</td><td>${l.to}</td><td>$${l.earned.toFixed(2)}</td><td>$${l.tip.toFixed(2)}</td><td>${"★".repeat(l.stars)}</td><td>${Math.round((1 - l.quality) * 100)}%</td></tr>`).join("")}</table></details>`;
-  renderMenu();
-  $("menu").classList.remove("hidden");
+  running = false; inShift = false;
+  if (!run) { show("title"); return; }
+  lastDay = settleShift(run, shift, car);
+  if (run.day > best.days || run.earned > best.earned) {
+    best = { days: Math.max(best.days, run.over ? run.day : run.day - 1), earned: Math.max(best.earned, run.earned) };
+    try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch {}
+  }
+  persist();
+  show(run.over ? "over" : "garage");
 }
 
 addEventListener("resize", () => { view.resize(); sizeLines(); });
 view.resize(); sizeLines();
 newShift();
-renderMenu();
+show("title");
 requestAnimationFrame(loop);
 
 window.__lm = { get car() { return car; }, get shift() { return shift; }, city, input, settings, start, info: () => view.info() };

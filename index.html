@@ -55,7 +55,7 @@
   #cond .bar { width: 80px; height: 6px; border-radius: 3px; background: rgba(0,0,0,.35); overflow: hidden; }
   #cond .bar span { display: block; height: 100%; width: 100%; background: #9ee08a; }
 
-  #toast { top: 28%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; font-weight: 900; opacity: 0; transition: opacity .3s; text-align: center; white-space: pre-line; }
+  #toast { top: 47%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; font-weight: 900; opacity: 0; transition: opacity .3s; text-align: center; white-space: pre-line; }
   #toast.show { opacity: 1; transition: none; }
   #toast small { display: block; font-size: 15px; font-weight: 700; }
 
@@ -100,6 +100,25 @@
   th, td { padding: 3px 6px; text-align: right; border-bottom: 1px solid rgba(255,255,255,.12); }
   th:first-child, td:first-child { text-align: left; }
   details summary { cursor: pointer; font-size: 13px; opacity: .85; margin: 6px 0; }
+  .stats { display: flex; gap: 14px; flex-wrap: wrap; font-variant-numeric: tabular-nums; margin: 6px 0 10px; }
+  .stats div { background: rgba(255,255,255,.07); border-radius: 10px; padding: 6px 10px; }
+  .stats b { display: block; font-size: 18px; }
+  .stats span { font-size: 11px; opacity: .75; letter-spacing: .04em; }
+  .shop { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0; }
+  .mod { border-radius: 12px; padding: 8px; background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.15); display: flex; flex-direction: column; gap: 4px; }
+  .mod .tag { font-size: 10px; letter-spacing: .08em; opacity: .7; }
+  .mod .tag.perf { color: #7fd8ff; } .mod .tag.cargo { color: #b7ffcf; } .mod .tag.silly { color: #ff9be0; }
+  .mod b { font-size: 14px; }
+  .mod .d { font-size: 11px; font-weight: 500; opacity: .85; flex: 1; }
+  .mod button { padding: 6px; border-radius: 8px; border: 0; background: var(--hot); color: #fff; font: 800 13px system-ui, sans-serif; }
+  .mod button:disabled { background: rgba(255,255,255,.15); color: rgba(255,255,255,.5); }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0 8px; }
+  .chip { font-size: 11px; padding: 3px 8px; border-radius: 10px; background: rgba(255,255,255,.12); }
+  .repair { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; font-size: 13px; }
+  .repair .bar { width: 120px; height: 9px; border-radius: 5px; background: rgba(0,0,0,.4); overflow: hidden; }
+  .repair .bar span { display: block; height: 100%; }
+  h2.big { font-size: 26px; margin: 0 0 2px; }
+  @media (max-width: 700px) { .shop { grid-template-columns: repeat(2, 1fr); } }
   @media (max-height: 480px) { h1 { font-size: 26px; } .mode { padding: 6px 9px; } .mode b { font-size: 14px; } }
 </style>
 </head>
@@ -132,17 +151,15 @@
 
 <div id="menu">
   <div class="card">
-    <h1>LAST MILE <small>delivery prototype</small></h1>
-    <div class="muted">Pick up at the orange beacon, deliver to the green one: stop inside the circle. The tip drains while the clock runs. Drinks spill if you throw the car around. Your rating is your job: drop under 4.0 and you're deactivated. The blue line is the GPS; the alleys, the parking lot and the park are faster, and the GPS doesn't know them.</div>
-    <div id="summary"></div>
-    <div class="modes" id="modes"></div>
-    <div class="row" id="opt-drag">Range <input type="range" id="dragRange" min="30" max="140" step="5"> <span id="dragRangeV"></span>
-      Centre <input type="range" id="dragDead" min="0" max="0.3" step="0.02"> <span id="dragDeadV"></span></div>
-    <div class="row" id="opt-drag2">Curve <input type="range" id="dragCurve" min="1" max="2.2" step="0.1"> <span id="dragCurveV"></span>
-      Pedal height <input type="range" id="pedalH" min="80" max="260" step="10"> <span id="pedalHV"></span></div>
-    <div id="msg"></div>
-    <div class="row"><button class="go" id="go">START SHIFT</button> <button class="sm" id="resume" style="display:none">Resume</button> <a class="sm" href="track.html" style="text-decoration:none;color:#fff;padding:7px 12px;border:2px solid rgba(255,255,255,.4);border-radius:9px;font-size:13px">Test track</a></div>
-    <div class="muted">Keys: A/D steer, W gas, S brake (hold S when stopped to reverse), R unstick, Esc menu.</div>
+    <div id="screen"></div>
+    <details id="settings"><summary>Controls</summary>
+      <div class="modes" id="modes"></div>
+      <div class="row">Range <input type="range" id="dragRange" min="30" max="140" step="5"> <span id="dragRangeV"></span>
+        Centre <input type="range" id="dragDead" min="0" max="0.3" step="0.02"> <span id="dragDeadV"></span></div>
+      <div class="row">Curve <input type="range" id="dragCurve" min="1" max="2.2" step="0.1"> <span id="dragCurveV"></span>
+        Pedal height <input type="range" id="pedalH" min="80" max="260" step="10"> <span id="pedalHV"></span></div>
+      <div class="muted">Keys: A/D steer, W gas, S brake (hold S when stopped to reverse), R unstick, Esc menu. <a href="track.html" style="color:#ffd27a">Test track</a></div>
+    </details>
   </div>
 </div>
 <script type="module" src="/src/city/main.js"></script>

@@ -15,6 +15,7 @@ export function makeCityCar(city) {
     off: false, offAmt: 0, wallT: 0, stuckT: 0, events: [], reverse: false, revT: 0,
     drifting: false, charge: 0, tier: 0, boost: 0,
     cond: 1,              // condition 0..1: knocks cost power
+    dmgMul: 1, bullbar: false,   // from mods (run.js)
     gLat: 0, gLong: 0,    // smoothed accelerations in g, for spilling drinks
   };
 }
@@ -59,10 +60,12 @@ export function stepCityCar(c, inp, city, p = P) {
         if (o.kind === "pole") {
           // lampposts snap off: a jolt, a little damage
           o.broken = true; o.fallX = -nx; o.fallZ = -nz;
-          c.vx *= 0.86; c.vz *= 0.86;
-          const sh = Math.sin(c.h), ch = Math.cos(c.h);
-          c.u = c.vx * sh + c.vz * ch; c.v = c.vx * ch - c.vz * sh;
-          c.cond = Math.max(0, c.cond - 0.02);
+          if (!c.bullbar) {
+            c.vx *= 0.86; c.vz *= 0.86;
+            const sh = Math.sin(c.h), ch = Math.cos(c.h);
+            c.u = c.vx * sh + c.vz * ch; c.v = c.vx * ch - c.vz * sh;
+            c.cond = Math.max(0, c.cond - 0.02 * c.dmgMul);
+          }
           c.events.push({ type: "pole", pole: o, speed: Math.hypot(c.vx, c.vz) });
           return;
         }
@@ -71,7 +74,7 @@ export function stepCityCar(c, inp, city, p = P) {
       if (!hit) break;
       c.x += hit[0] * best; c.z += hit[1] * best;
       const into = wallHit(c, -hit[0], -hit[1]);
-      if (into > 2.5) c.cond = Math.max(0, c.cond - Math.min(0.25, (into - 2) * 0.012));
+      if (into > 2.5) c.cond = Math.max(0, c.cond - Math.min(0.25, (into - 2) * 0.012) * c.dmgMul);
     }
   }
 
