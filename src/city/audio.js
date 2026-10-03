@@ -21,20 +21,27 @@ export function createAudio() {
     noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    // engine: saw + square sub-octave + a quieter octave up, through a throttle-opened low-pass and a little drive
+    // engine: a power chord (sub-octave, root, fifth, octave, twelfth), every voice doubled with a
+    // detuned twin so they beat against each other, then a low-mid body boost, a throttle-opened
+    // low-pass and drive (user: the single-voice version sounded thin)
     const out = ctx.createGain(); out.gain.value = 0;
-    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = 3;
+    const body = ctx.createBiquadFilter(); body.type = "peaking"; body.frequency.value = 160; body.Q.value = 0.9; body.gain.value = 7;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = 1.6;
     const shaper = ctx.createWaveShaper();
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) { const x = (i / 128) - 1; curve[i] = Math.tanh(x * 2.2); }
+    const curve = new Float32Array(512);
+    for (let i = 0; i < 512; i++) { const x = (i / 256) - 1; curve[i] = Math.tanh(x * 3.2); }
     shaper.curve = curve;
-    const oscs = [["sawtooth", 1, 0.5], ["square", 0.5, 0.35], ["sawtooth", 2, 0.12]].map(([type, mul, g]) => {
-      const o = ctx.createOscillator(); o.type = type;
-      const og = ctx.createGain(); og.gain.value = g;
-      o.connect(og).connect(lp); o.start();
-      return { o, mul };
-    });
-    lp.connect(shaper).connect(out).connect(master);
+    const pre = ctx.createGain(); pre.gain.value = 0.5;
+    const oscs = [];
+    for (const [type, mul, g] of [["triangle", 0.5, 0.55], ["sawtooth", 1, 0.42], ["sawtooth", 1.5, 0.26], ["square", 2, 0.12], ["sawtooth", 3, 0.06]]) {
+      for (const cents of [-7, 6]) {
+        const o = ctx.createOscillator(); o.type = type; o.detune.value = cents + (Math.random() - 0.5) * 3;
+        const og = ctx.createGain(); og.gain.value = g;
+        o.connect(og).connect(pre); o.start();
+        oscs.push({ o, mul });
+      }
+    }
+    pre.connect(body).connect(lp).connect(shaper).connect(out).connect(master);
     eng = { out, lp, oscs };
     // noise beds
     loops.squeal = noiseLoop("bandpass", 1500, 6);
@@ -71,6 +78,7 @@ export function createAudio() {
     src.connect(f).connect(g).connect(master);
     src.start(t0, Math.random()); src.stop(t0 + dur + 0.05);
   }
+  // cues (orders, turns, the clock) sit ~1.7x hotter than effects so they cut through the engine
   const SFX = {
     thump(speed) {
       const k = Math.min(1, speed / 14);
@@ -79,17 +87,17 @@ export function createAudio() {
       if (k > 0.4) burst(0.3, { type: "highpass", freq: 3000, gain: 0.15 * k, at: 0.02 });   // something rattles
     },
     clang() { for (const [f, g] of [[523, 0.12], [781, 0.09], [1203, 0.06], [1650, 0.04]]) tone(f, 0.9, { type: "triangle", gain: g }); burst(0.12, { freq: 1200, gain: 0.25 }); },
-    ping() { tone(1318, 0.12, { gain: 0.18 }); tone(1760, 0.25, { gain: 0.16, at: 0.09 }); },
-    pickup() { tone(659, 0.12, { type: "triangle", gain: 0.25 }); tone(988, 0.25, { type: "triangle", gain: 0.25, at: 0.08 }); },
+    ping() { tone(1318, 0.12, { gain: 0.306 }); tone(1760, 0.25, { gain: 0.272, at: 0.09 }); },
+    pickup() { tone(659, 0.12, { type: "triangle", gain: 0.425 }); tone(988, 0.25, { type: "triangle", gain: 0.425, at: 0.08 }); },
     kaching() {
       burst(0.05, { type: "highpass", freq: 2500, gain: 0.35 });
       for (const [f, at] of [[2093, 0.04], [2637, 0.1], [3136, 0.16]]) tone(f, 0.6, { gain: 0.12, at });
       tone(1046, 0.5, { type: "triangle", gain: 0.12, at: 0.04 });
     },
-    sad() { tone(392, 0.25, { type: "triangle", gain: 0.2 }); tone(311, 0.45, { type: "triangle", gain: 0.2, at: 0.2 }); },
-    tick(urgent) { tone(urgent ? 1900 : 1500, 0.04, { type: "square", gain: 0.06 }); },
+    sad() { tone(392, 0.25, { type: "triangle", gain: 0.34 }); tone(311, 0.45, { type: "triangle", gain: 0.34, at: 0.2 }); },
+    tick(urgent) { tone(urgent ? 1900 : 1500, 0.04, { type: "square", gain: 0.102 }); },
     slosh() { burst(0.35, { type: "bandpass", freq: 500, sweep: 1400, q: 2, gain: 0.3 }); },
-    turn(pan) { tone(880, 0.09, { gain: 0.16, pan }); tone(1175, 0.14, { gain: 0.16, pan, at: 0.08 }); },
+    turn(pan) { tone(880, 0.09, { gain: 0.272, pan }); tone(1175, 0.14, { gain: 0.272, pan, at: 0.08 }); },
     beep() { tone(1050, 0.22, { type: "square", gain: 0.05, attack: 0.01 }); },
     reset() { tone(500, 0.2, { glide: 250, type: "triangle", gain: 0.15 }); },
     buy() { SFX.kaching(); },
@@ -122,8 +130,8 @@ export function createAudio() {
       rpm += (target - rpm) * Math.min(1, dt * (target < rpm ? 14 : 8));
       const f = (rpm / 60) * 2;   // a four: two pulses a revolution
       for (const { o, mul } of eng.oscs) set(o.frequency, f * mul, 0.02);
-      set(eng.lp.frequency, 300 + s.throttle * 2200 + rpm * 0.15, 0.05);
-      set(eng.out.gain, on * (0.1 + s.throttle * 0.16) * (0.75 + 0.25 * s.cond), 0.05);
+      set(eng.lp.frequency, 380 + s.throttle * 2000 + rpm * 0.18, 0.05);
+      set(eng.out.gain, on * (0.13 + s.throttle * 0.17) * (0.75 + 0.25 * s.cond), 0.05);
       // tyres: squeal with the worse slip, front or rear, once moving
       const slip = Math.max(Math.abs(s.slipR) - 0.08, Math.abs(s.slipF) - 0.11, 0);
       set(loops.squeal.g.gain, on * (s.off ? 0 : Math.min(0.32, slip * 1.6)) * Math.min(1, v / 5), 0.04);
