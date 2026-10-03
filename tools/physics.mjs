@@ -2,6 +2,7 @@
 // measured on a flat open plane (a giant fake track so walls never interfere).
 // usage: node tools/physics.mjs
 import { makeCar2, stepCar2, P } from "../src/car2.js";
+import { buildTrack } from "../src/track.js";
 
 // a straight "track" 4 km long and far wider than anything we do, so locate() just works
 const N = 4000, tr = { open: true, N, x: new Float64Array(N), z: new Float64Array(N), nx: new Float64Array(N), nz: new Float64Array(N), heading: new Float64Array(N), curv: new Float64Array(N), tx: new Float64Array(N), tz: new Float64Array(N) };
@@ -53,5 +54,22 @@ check("holding steady stays steady", Math.abs(steady.ratio - 1) < 0.05 && steady
   const c = fresh(); let rMax = 0;
   run(c, { steer: 0, throttle: 1, brake: 0 }, 600, (t, c) => { rMax = Math.max(rMax, Math.abs(c.r)); center(c); });
   check("straight line is stable", rMax < 1e-6, `max yaw rate ${rMax.toExponential(1)}`);
+}
+{ // glancing a wall on the real track at 25 degrees: how long until the car is pointing down the road again?
+  // the "driver" steers toward the road's direction, like a player correcting
+  const real = buildTrack(), i0 = 120;
+  for (const deg of [15, 30, 45]) {
+    const c = makeCar2(real, i0); c.h = real.heading[i0] - (deg * Math.PI) / 180; c.u = 30;
+    let hitT = -1, okT = -1;
+    for (let t = 0; t < 60 * 6 && okT < 0; t++) {
+      const err = Math.atan2(Math.sin(c.h - real.heading[c.i]), Math.cos(c.h - real.heading[c.i]));   // + = pointing left of the road
+      const steer = hitT < 0 ? 0 : Math.max(-1, Math.min(1, err * 3 - c.d * 0.03));
+      stepCar2(c, { steer, throttle: 0.7, brake: 0 }, real);
+      if (hitT < 0 && c.events.some((e) => e.type === "wall")) hitT = t;
+      if (hitT >= 0 && t > hitT + 6 && Math.abs(err) < 0.08 && Math.abs(c.slip) < 0.06) okT = t;
+    }
+    check(`recover from a ${deg} degree wall hit`, hitT >= 0 && okT >= 0 && okT - hitT < 60 * 1.2,
+      hitT < 0 ? "never hit the wall" : okT < 0 ? "not straight after 6 s" : `${((okT - hitT) / 60).toFixed(2)} s after the hit`);
+  }
 }
 console.log(ok ? "all physics checks pass" : "SOME PHYSICS CHECKS FAILED");

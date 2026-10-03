@@ -14,13 +14,13 @@ import { DT } from "./car.js";
 
 export const P = {
   m: 1200, Iz: 1750, a: 1.2, b: 1.4, hcg: 0.55, g: 9.81,
-  mu: 1.55, muOff: 0.8, B: 8, C: 1.45,        // tyre peak grip; a simplified Pacejka curve
-  rearGrip: 1.25, BR: 12, CR: 1.3,            // rear: more grip, stiffer, gentler past the peak. Rear
+  mu: 1.85, muOff: 0.9, B: 20, C: 1.4,        // tyre peak grip (peaks at ~6 deg of slip); a simplified Pacejka curve
+  rearGrip: 1.2, BR: 26, CR: 1.25,            // rear: more grip, stiffer, gentler past the peak. Rear
                                               // stiffness per kg must beat the front's or the car oversteers
-  power: 210000, fMax: 11500, drag: 1.35, roll: 30, rollOff: 260,
-  brakeMax: 1.25, brakeRear: 0.8,             // total brake force in g; the rear gets this much of its share of
+  power: 210000, fMax: 13500, drag: 1.35, roll: 30, rollOff: 260,
+  brakeMax: 1.5, brakeRear: 0.8,              // total brake force in g; the rear gets this much of its share of
                                               // the load (a proportioning valve: the fronts lock first, braking stays stable)
-  steerMax: 0.6, steerSpeed: 14,              // lock shrinks with speed, ~what the tyres can use: steerMax / (1 + (u / steerSpeed)^2)
+  steerMax: 0.6, steerSpeed: 15.5,             // lock shrinks with speed, ~what the tyres can use: steerMax / (1 + (u / steerSpeed)^2)
   steerRate: 4,                               // full locks per second: the wheel can't snap, whatever the thumb does
   lockFloor: 0.35,                            // side grip left on a locked or spinning axle
   loadLag: 0.1,                               // seconds for weight to move between axles
@@ -115,9 +115,16 @@ export function stepCar2(c, inp, tr, p = P) {
       c.vx -= nx * into * 1.25; c.vz -= nz * into * 1.25;
       const keep = 1 - Math.min(0.35, into * 0.03);
       c.vx *= keep; c.vz *= keep;
+      // turn the car toward the wall's direction (whichever way it was mostly going), as arcade
+      // racers do: otherwise the tyres keep steering the nose into the wall and it scrapes along
+      const along = tr.heading[q.i], back = along + Math.PI;
+      const dA = Math.atan2(Math.sin(along - c.h), Math.cos(along - c.h)), dB = Math.atan2(Math.sin(back - c.h), Math.cos(back - c.h));
+      const turn = Math.abs(dA) < Math.abs(dB) ? dA : dB;
+      c.h += turn * Math.min(0.85, 0.35 + into * 0.04);
       const sh = Math.sin(c.h), ch = Math.cos(c.h);
-      c.u = c.vx * sh + c.vz * ch; c.v = c.vx * ch - c.vz * sh;
-      c.r *= 0.6;
+      c.u = c.vx * sh + c.vz * ch; c.v = (c.vx * ch - c.vz * sh) * 0.4;
+      c.vx = sh * c.u + ch * c.v; c.vz = ch * c.u - sh * c.v;
+      c.r *= 0.2;
       if (into > 2.5 && c.wallT <= 0) c.events.push({ type: "wall", speed: into });
       if (into > 2.5) c.wallT = 0.5;
     }
