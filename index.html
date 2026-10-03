@@ -40,6 +40,21 @@
   #brake { right: calc(max(22px, env(safe-area-inset-right)) + 136px); bottom: max(22px, env(safe-area-inset-bottom)); width: 78px; height: 78px; font-size: 13px; }
   #pause { position: fixed; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 44px; height: 44px; border-radius: 10px;
     background: rgba(16,21,28,.35); border: 2px solid rgba(255,255,255,.6); color: #fff; font-size: 18px; }
+  /* the pedal strip: gas on top, both in the middle band, brake at the bottom */
+  #pedal { position: fixed; right: max(18px, env(safe-area-inset-right)); top: 16%; bottom: max(14px, env(safe-area-inset-bottom)); width: 104px;
+    border-radius: 20px; border: 3px solid rgba(255,255,255,.7); touch-action: none; overflow: hidden;
+    background: linear-gradient(to bottom, rgba(60,200,90,.6) 0%, rgba(60,200,90,.6) 10%, rgba(60,200,90,.3) 38%,
+      rgba(255,190,40,.45) 38%, rgba(255,190,40,.45) 60%, rgba(230,60,50,.3) 60%, rgba(230,60,50,.65) 90%, rgba(230,60,50,.65) 100%); }
+  #pedal .lab { position: absolute; left: 0; right: 0; text-align: center; font-weight: 800; font-size: 13px; letter-spacing: .06em; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.45); }
+  #pedal .gas { top: 9%; } #pedal .both { top: 46%; } #pedal .brk { top: 80%; }
+  #pedal i { position: absolute; left: 0; right: 0; height: 4px; margin-top: -2px; background: #fff; display: none; box-shadow: 0 0 6px #fff; }
+  #pedhud { display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; font-size: 10px; letter-spacing: .05em; }
+  #pedhud .pb { width: 56px; height: 8px; background: rgba(0,0,0,.35); border-radius: 4px; overflow: hidden; }
+  #pedhud .pb span { display: block; height: 100%; width: 0; }
+  #pbT { background: #5fdc78; } #pbB { background: #ff6a5a; }
+  #wbar { position: relative; width: 70px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(255,255,255,.15), rgba(255,255,255,.4) 50%, rgba(255,255,255,.15)); }
+  #wbar i { position: absolute; top: -3px; width: 6px; height: 14px; margin-left: -3px; border-radius: 3px; background: #ffd27a; left: 50%; }
+  .seg.sel { border-color: var(--hot); background: rgba(255,122,26,.25); }
   #knob { position: fixed; pointer-events: none; display: none; }
   #knob .ring { position: absolute; border: 2px solid rgba(255,255,255,.55); border-radius: 50%; }
   #knob .dot { position: absolute; width: 44px; height: 44px; margin: -22px; border-radius: 50%; background: rgba(255,255,255,.75); }
@@ -73,6 +88,7 @@
 <div id="boostfx"></div>
 <div id="zone"><div class="hint" id="zonehint"></div></div>
 <div id="knob"><div class="rail"></div><div class="ring"></div><div class="dot"></div></div>
+<div id="pedal"><span class="lab gas">GAS</span><span class="lab both">BOTH</span><span class="lab brk">BRAKE</span><i></i></div>
 <button class="btn" id="brake">BRAKE</button>
 <button class="btn" id="drift">DRIFT</button>
 <button id="pause" aria-label="Menu">❚❚</button>
@@ -83,13 +99,17 @@
   <div id="steerbar"><b></b><i></i></div>
 </div>
 <div class="hud" id="lapinfo"><div id="lapn">LAP 1</div><div id="modename" class="muted"></div></div>
-<div class="hud" id="speed"><div id="kmh">0 <small>km/h</small></div><div id="charge"><span></span></div></div>
+<div class="hud" id="speed"><div id="kmh">0 <small>km/h</small></div><div id="charge"><span></span></div>
+  <div id="pedhud"><div class="pb"><span id="pbB"></span></div><span>F</span><div id="wbar" title="weight: front / rear"><i></i></div><span>R</span><div class="pb"><span id="pbT"></span></div></div></div>
 <div class="hud" id="toast"></div>
 
 <div id="menu">
   <div class="card">
     <h1>TOUCH RACER</h1>
-    <div class="muted">A steering test. It drives itself forward; you steer, drift and brake. Do a few laps with each scheme and compare the times.</div>
+    <div class="muted">A steering test. Pick a car and a steering scheme, do a few laps, compare the times.</div>
+    <div class="row" style="margin-top:12px"><b>Car</b>
+      <button class="sm seg" data-model="pedals">Pedals: gas/brake strip, weight transfer</button>
+      <button class="sm seg" data-model="arcade">Arcade: auto gas, drift button</button></div>
     <div class="modes" id="modes"></div>
     <div id="opt-drag">
       <div class="row">Range <input type="range" id="dragRange" min="30" max="140" step="5"> <span id="dragRangeV"></span></div>
@@ -100,7 +120,7 @@
       <button class="sm" id="recenter">Recenter</button> <label><input type="checkbox" id="tiltInvert"> invert</label></div>
     <div id="msg"></div>
     <div class="row"><button class="go" id="go">RACE</button> <button class="sm" id="restart">Restart lap</button> <button class="sm" id="clear">Clear times</button></div>
-    <div class="muted">Hold DRIFT while turning, let go once the sparks change colour for a boost (yellow → blue → orange → purple). Keys: A/D steer, Space drift, S brake, Esc menu.</div>
+    <div class="muted" id="help"></div>
     <table id="laps"></table>
   </div>
 </div>

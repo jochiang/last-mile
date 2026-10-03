@@ -261,7 +261,8 @@ export function createRenderer(canvas, tr) {
     if (pose.drifting) {
       const n = pose.tier ? 3 : 1;
       for (let k = 0; k < n; k++) for (const [x, z] of [rearL, rearR]) {
-        emit(x, 0.2, z, (Math.random() - 0.5) * 4 - fx * 3, 1 + Math.random() * 2.5, (Math.random() - 0.5) * 4 - fz * 3, TIER_COL[pose.tier], 0.3 + Math.random() * 0.2);
+        if (pose.smoke) emit(x, 0.3, z, (Math.random() - 0.5) * 2 - fx * 2, 0.6 + Math.random(), (Math.random() - 0.5) * 2 - fz * 2, 0xe8e8e8, 0.5 + Math.random() * 0.3);
+        else emit(x, 0.2, z, (Math.random() - 0.5) * 4 - fx * 3, 1 + Math.random() * 2.5, (Math.random() - 0.5) * 4 - fz * 3, TIER_COL[pose.tier], 0.3 + Math.random() * 0.2);
       }
     }
     if (pose.off && pose.speed > 5) for (const [x, z] of [rearL, rearR]) emit(x, 0.3, z, (Math.random() - 0.5) * 2, 1 + Math.random(), (Math.random() - 0.5) * 2, 0xb59a62, 0.6);

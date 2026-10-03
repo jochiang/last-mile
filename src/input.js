@@ -4,14 +4,17 @@
 //          so reversing is instant.
 //   stick: the usual floating stick (rate control), x axis only. The baseline to beat.
 //   tilt:  turn the phone like a wheel. Needs HTTPS (a secure context) for the motion sensors.
-// Keyboard works in every scheme: A/D or arrows, Space drift, S/Down brake.
+// Keyboard works in every scheme: A/D or arrows, Space drift, S/Down brake (W/Up gas with pedals).
+//
+// The pedals car (car2.js) swaps the DRIFT/BRAKE buttons for one pedal strip under the right thumb:
+// gas at the top, brake at the bottom, and a band in the middle where both are on (left-foot braking).
 
 export const MODES = ["drag", "tilt", "stick"];
 export const SETTINGS_KEY = "tr.settings.v1";
 
 export function loadSettings() {
   // drag defaults borrow the stick's feel (user, 2026-10-02): 60 px throw, a resting zone in the middle
-  const def = { mode: "drag", dragRange: 60, dragDead: 0.1, dragCurve: 1.3, tiltLock: 22, tiltInvert: false };
+  const def = { model: "pedals", mode: "drag", dragRange: 60, dragDead: 0.1, dragCurve: 1.3, tiltLock: 22, tiltInvert: false };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     if (saved.dragDead === undefined) delete saved.dragRange;   // settings from before the drag tuning
@@ -20,6 +23,17 @@ export function loadSettings() {
 }
 export function saveSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {} }
 
+/** Pedal strip position (0 = top, 1 = bottom) to [throttle, brake]. Gas is full in the top 10% and
+ *  eases to half by 38%; 38-60% is the overlap (gas fading out, brake fading in to 30%); brake is
+ *  full by 90%. */
+export const PEDAL = { gasFull: 0.1, overlap: [0.38, 0.6], brakeFull: 0.9 };
+export function pedalMap(p) {
+  const [o0, o1] = PEDAL.overlap;
+  const thr = p < PEDAL.gasFull ? 1 : p < o0 ? 1 - (0.5 * (p - PEDAL.gasFull)) / (o0 - PEDAL.gasFull) : Math.max(0, (0.5 * (o1 - p)) / (o1 - o0));
+  const brk = p < o0 ? 0 : p < o1 ? (0.3 * (p - o0)) / (o1 - o0) : Math.min(1, 0.3 + (0.7 * (p - o1)) / (PEDAL.brakeFull - o1));
+  return [thr, brk];
+}
+
 const STICK_R = 60, STICK_DEAD = 0.12;
 
 export function createInput(zone, buttons, settings) {
@@ -27,7 +41,8 @@ export function createInput(zone, buttons, settings) {
     steerPtr: null, ox: 0, oy: 0, x: 0, y: 0,    // the steering (or tilt-mode brake) thumb
     dragSteer: 0, stickSteer: 0,
     drift: new Set(), brake: new Set(),           // pointer ids holding each button
-    keys: new Set(), keySteer: 0,
+    keys: new Set(), keySteer: 0, keyThr: 0, keyBrk: 0,
+    pedPtr: null, ped: 0, pedTop: 0, pedH: 1,       // the pedal thumb, as a 0..1 position down the strip
     tiltRaw: null, tiltCenter: 0, tiltOk: false,
   };
 
@@ -63,6 +78,22 @@ export function createInput(zone, buttons, settings) {
     el.addEventListener("pointerup", off);
     el.addEventListener("pointercancel", off);
   }
+
+  // --- touch: the pedal strip. Absolute position, so the thumb learns where gas and brake are
+  const pedal = buttons.pedal;
+  const pedPos = (e) => Math.max(0, Math.min(1, (e.clientY - st.pedTop) / st.pedH));
+  pedal.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (st.pedPtr !== null) return;
+    const r = pedal.getBoundingClientRect();
+    st.pedTop = r.top; st.pedH = r.height;
+    st.pedPtr = e.pointerId; st.ped = pedPos(e);
+    pedal.setPointerCapture(e.pointerId);
+  });
+  pedal.addEventListener(MOVE, (e) => { if (e.pointerId === st.pedPtr) st.ped = pedPos(e); });
+  const pedUp = (e) => { if (e.pointerId === st.pedPtr) st.pedPtr = null; };
+  pedal.addEventListener("pointerup", pedUp);
+  pedal.addEventListener("pointercancel", pedUp);
 
   // --- keyboard
   addEventListener("keydown", (e) => { st.keys.add(e.code); if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault(); });
@@ -119,11 +150,17 @@ export function createInput(zone, buttons, settings) {
       touch = Math.max(-1, Math.min(1, deg / settings.tiltLock));
     }
     const steer = Math.abs(st.keySteer) > Math.abs(touch) ? st.keySteer : touch;
-    return {
-      steer,
-      drift: st.drift.size > 0 || st.keys.has("Space"),
-      brake: st.brake.size > 0 || st.keys.has("KeyS") || st.keys.has("ArrowDown"),
-    };
+    const kBrk = st.keys.has("KeyS") || st.keys.has("ArrowDown");
+    if (settings.model !== "pedals") {
+      return { steer, drift: st.drift.size > 0 || st.keys.has("Space"), brake: st.brake.size > 0 || kBrk ? 1 : 0, throttle: 1 };
+    }
+    // keys squeeze the pedals in over a few frames
+    const kThr = st.keys.has("KeyW") || st.keys.has("ArrowUp");
+    st.keyThr += Math.max(-8 * dt, Math.min(5 * dt, (kThr ? 1 : 0) - st.keyThr));
+    st.keyBrk += Math.max(-8 * dt, Math.min(6 * dt, (kBrk ? 1 : 0) - st.keyBrk));
+    let [thr, brk] = st.pedPtr !== null ? pedalMap(st.ped) : [0, 0];
+    if (settings.mode === "tilt" && st.brake.size) brk = 1;
+    return { steer, drift: false, throttle: Math.max(thr, st.keyThr), brake: Math.max(brk, st.keyBrk) };
   }
 
   return {
@@ -131,7 +168,7 @@ export function createInput(zone, buttons, settings) {
     enableTilt,
     recenter() { if (st.tiltRaw != null) st.tiltCenter = st.tiltRaw; },
     state: st,
-    release() { st.steerPtr = null; st.drift.clear(); st.brake.clear(); st.keys.clear(); },
+    release() { st.steerPtr = null; st.pedPtr = null; st.drift.clear(); st.brake.clear(); st.keys.clear(); },
   };
 }
 
