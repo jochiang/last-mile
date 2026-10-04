@@ -215,7 +215,7 @@ for (const [id, key] of [["dragRange", "dragRange"], ["dragDead", "dragDead"], [
   $(id).addEventListener("input", (e) => { settings[key] = +e.target.value; saveSettings(settings); renderMenu(); applyModel(); });
 }
 $("tiltInvert").addEventListener("change", (e) => { settings.tiltInvert = e.target.checked; saveSettings(settings); });
-$("recenter").addEventListener("click", () => { input.recenter(); $("msg").textContent = "Centred."; });
+$("recenter").addEventListener("click", () => { input.recenter(); $("msg").textContent = "Centered."; });
 $("clear").addEventListener("click", () => { if (confirm("Clear all lap times?")) { history = []; saveHistory(); for (const k in bestGhost) delete bestGhost[k]; renderMenu(); } });
 $("restart").addEventListener("click", () => { newRun(); start(); });
 $("go").addEventListener("click", start);
