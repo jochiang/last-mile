@@ -45,6 +45,7 @@
   #kmh { font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
   #kmh small { font-size: 12px; opacity: .8; }
   #gear { font-size: 11px; color: #ffd27a; height: 13px; }
+  .pm.sel { border-color: var(--hot); background: rgba(255,122,26,.25); }
   #pedhud { display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 4px; font-size: 10px; letter-spacing: .05em; }
   #pedhud .pb { width: 46px; height: 7px; background: rgba(0,0,0,.35); border-radius: 4px; overflow: hidden; }
   #pedhud .pb span { display: block; height: 100%; width: 0; }
@@ -61,6 +62,10 @@
 
   /* controls */
   #zone { position: fixed; left: 0; top: 0; bottom: 0; width: 58%; touch-action: none; }
+  /* the floating pedal's touch area: the right of the screen below the minimap */
+  #pedzone { position: fixed; right: 0; top: 150px; bottom: 0; width: 42%; touch-action: none; display: none; }
+  #pedzone .hint { position: absolute; left: 50%; bottom: 20%; transform: translateX(-50%); opacity: .55; font-size: 13px; text-align: center; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.4); }
+  #pedal.float { pointer-events: none; transform: none; }
   #zone .hint { position: absolute; left: 50%; bottom: 20%; transform: translateX(-50%); opacity: .55; font-size: 13px; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.4); }
   /* centred on the right edge, a touch low: where the thumb rests (user, 2026-10-03) */
   #pedal { position: fixed; right: max(22px, env(safe-area-inset-right)); top: 55%; transform: translateY(-50%); height: 150px; width: 92px;
@@ -127,6 +132,7 @@
 <canvas id="c"></canvas>
 <canvas id="lines"></canvas>
 <div id="zone"><div class="hint" id="zonehint">slide to steer</div></div>
+<div id="pedzone"><div class="hint" id="pedhint">thumb down: gas<br>slide down: brake</div></div>
 <div id="knob"><div class="rail"></div><div class="ring"></div><div class="dot"></div></div>
 <div id="pedal"><span class="lab gas">GAS</span><span class="lab both">BOTH</span><span class="lab brk">BRAKE</span><i></i></div>
 <button class="hidden-btn" id="drift"></button><button class="hidden-btn" id="brake"></button>
@@ -159,6 +165,7 @@
         Centre <input type="range" id="dragDead" min="0" max="0.3" step="0.02"> <span id="dragDeadV"></span></div>
       <div class="row">Curve <input type="range" id="dragCurve" min="1" max="2.2" step="0.1"> <span id="dragCurveV"></span>
         Pedal height <input type="range" id="pedalH" min="80" max="260" step="10"> <span id="pedalHV"></span></div>
+      <div class="row">Pedal <button class="sm pm" data-pm="float">Floating</button> <button class="sm pm" data-pm="fixed">Fixed strip</button></div>
       <div class="row">Volume <input type="range" id="volume" min="0" max="1" step="0.05"> <span id="volumeV"></span></div>
       <div class="muted">Keys: A/D steer, W gas, S brake (hold S when stopped to reverse), R unstick, Esc menu. <a href="track.html" style="color:#ffd27a">Test track</a></div>
     </details>

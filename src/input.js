@@ -16,7 +16,9 @@ export function loadSettings() {
   // pedalH: the strip's height in px. Short: the thumb rocks between gas and brake (user, 2026-10-03:
   // full-height swipes were "awful")
   // drag defaults borrow the stick's feel (user, 2026-10-02): 60 px throw, a resting zone in the middle
-  const def = { model: "pedals", mode: "drag", dragRange: 60, dragDead: 0.1, dragCurve: 1.3, pedalH: 150, tiltLock: 22, tiltInvert: false };
+  // pedalMode "float" (default since 2026-10-03, the user's thumb cramped holding the fixed strip):
+  // wherever the thumb lands on the right is full gas; sliding down from there eases off, then brakes
+  const def = { model: "pedals", mode: "drag", dragRange: 60, dragDead: 0.1, dragCurve: 1.3, pedalH: 150, pedalMode: "float", tiltLock: 22, tiltInvert: false };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     if (saved.dragDead === undefined) delete saved.dragRange;   // settings from before the drag tuning
@@ -45,6 +47,7 @@ export function createInput(zone, buttons, settings) {
     drift: new Set(), brake: new Set(),           // pointer ids holding each button
     keys: new Set(), keySteer: 0, keyThr: 0, keyBrk: 0,
     pedPtr: null, ped: 0, pedTop: 0, pedH: 1,       // the pedal thumb, as a 0..1 position down the strip
+    pedX: 0, pedFloat: false,                       // floating: where the strip was put down under the thumb
     tiltRaw: null, tiltCenter: 0, tiltOk: false,
   };
 
@@ -96,6 +99,29 @@ export function createInput(zone, buttons, settings) {
   const pedUp = (e) => { if (e.pointerId === st.pedPtr) st.pedPtr = null; };
   pedal.addEventListener("pointerup", pedUp);
   pedal.addEventListener("pointercancel", pedUp);
+
+  // --- touch: the floating pedal. The strip is laid under the thumb so that it lands at full gas;
+  // sliding up past the top drags the strip along (so coming back down responds at once)
+  const pz = buttons.pedzone;
+  if (pz) {
+    const LAND = 0.06;   // where on the strip the thumb lands: the top, full gas
+    pz.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      if (st.pedPtr !== null || settings.pedalMode !== "float") return;
+      st.pedH = settings.pedalH; st.pedTop = e.clientY - LAND * st.pedH; st.pedX = e.clientX;
+      st.pedPtr = e.pointerId; st.ped = LAND; st.pedFloat = true;
+      pz.setPointerCapture(e.pointerId);
+    });
+    pz.addEventListener(MOVE, (e) => {
+      if (e.pointerId !== st.pedPtr) return;
+      let p = (e.clientY - st.pedTop) / st.pedH;
+      if (p < LAND) { st.pedTop = e.clientY - LAND * st.pedH; p = LAND; }
+      st.ped = Math.min(1, p);
+    });
+    const pzUp = (e) => { if (e.pointerId === st.pedPtr) { st.pedPtr = null; st.pedFloat = false; } };
+    pz.addEventListener("pointerup", pzUp);
+    pz.addEventListener("pointercancel", pzUp);
+  }
 
   // --- keyboard
   addEventListener("keydown", (e) => { st.keys.add(e.code); if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault(); });

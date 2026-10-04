@@ -14,7 +14,8 @@ const city = buildCity();
 const settings = loadSettings();
 settings.model = "pedals";
 if (settings.mode === "tilt") settings.mode = "drag";
-const input = createInput($("zone"), { drift: $("drift"), brake: $("brake"), pedal: $("pedal") }, settings);
+if (!settings.pedalMode) settings.pedalMode = "float";
+const input = createInput($("zone"), { drift: $("drift"), brake: $("brake"), pedal: $("pedal"), pedzone: $("pedzone") }, settings);
 const audio = createAudio();
 if (settings.volume === undefined) settings.volume = 0.8;
 const view = createCityRenderer($("c"), city, { night: settings.night !== false });
@@ -132,6 +133,12 @@ function hud() {
   const st = input.state, mark = $("pedal").querySelector("i");
   mark.style.display = st.pedPtr !== null ? "block" : "none";
   mark.style.top = `${st.ped * 100}%`;
+  // the floating strip follows the thumb; it shows faintly where it'll appear when not held
+  if (settings.pedalMode === "float") {
+    const pd = $("pedal");
+    if (st.pedPtr !== null) { pd.style.left = `${st.pedX - 46}px`; pd.style.top = `${st.pedTop}px`; pd.style.opacity = 1; }
+    else { pd.style.left = ""; pd.style.top = ""; pd.style.opacity = 0.25; }
+  }
 }
 
 function knob() {
@@ -344,6 +351,11 @@ function renderSettings() {
   $("dragCurve").value = settings.dragCurve; $("dragCurveV").textContent = "×" + (+settings.dragCurve).toFixed(1);
   $("pedalH").value = settings.pedalH; $("pedalHV").textContent = settings.pedalH + "px";
   $("pedal").style.height = settings.pedalH + "px";
+  const float = settings.pedalMode === "float";
+  document.querySelectorAll(".pm").forEach((b) => b.classList.toggle("sel", b.dataset.pm === settings.pedalMode));
+  $("pedzone").style.display = float ? "block" : "none";
+  $("pedal").classList.toggle("float", float);
+  if (!float) { $("pedal").style.left = ""; $("pedal").style.top = ""; $("pedal").style.opacity = 1; }
   $("volume").value = settings.volume; $("volumeV").textContent = Math.round(settings.volume * 100) + "%";
   audio.setVolume(settings.volume);
 }
@@ -363,6 +375,7 @@ $("screen").addEventListener("click", (e) => {
   persist();
   show("garage");
 });
+document.querySelectorAll(".pm").forEach((b) => b.addEventListener("click", () => { settings.pedalMode = b.dataset.pm; saveSettings(settings); renderSettings(); }));
 $("modes").addEventListener("click", (e) => {
   const b = e.target.closest(".mode[data-m]");
   if (!b) return;
