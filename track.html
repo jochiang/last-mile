@@ -41,7 +41,8 @@
   #pause { position: fixed; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 44px; height: 44px; border-radius: 10px;
     background: rgba(16,21,28,.35); border: 2px solid rgba(255,255,255,.6); color: #fff; font-size: 18px; }
   /* the pedal strip: gas on top, both in the middle band, brake at the bottom */
-  #pedal { position: fixed; right: max(22px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); height: 150px; width: 92px;
+  /* centred on the right edge, a touch low: where the thumb rests (user, 2026-10-03) */
+  #pedal { position: fixed; right: max(22px, env(safe-area-inset-right)); top: 55%; transform: translateY(-50%); height: 150px; width: 92px;
     border-radius: 20px; border: 3px solid rgba(255,255,255,.7); touch-action: none; overflow: hidden;
     background: linear-gradient(to bottom, rgba(60,200,90,.6) 0%, rgba(60,200,90,.6) 10%, rgba(60,200,90,.3) 38%,
       rgba(255,190,40,.45) 38%, rgba(255,190,40,.45) 60%, rgba(230,60,50,.3) 60%, rgba(230,60,50,.65) 90%, rgba(230,60,50,.65) 100%); }

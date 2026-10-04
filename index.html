@@ -62,7 +62,8 @@
   /* controls */
   #zone { position: fixed; left: 0; top: 0; bottom: 0; width: 58%; touch-action: none; }
   #zone .hint { position: absolute; left: 50%; bottom: 20%; transform: translateX(-50%); opacity: .55; font-size: 13px; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.4); }
-  #pedal { position: fixed; right: max(22px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); height: 150px; width: 92px;
+  /* centred on the right edge, a touch low: where the thumb rests (user, 2026-10-03) */
+  #pedal { position: fixed; right: max(22px, env(safe-area-inset-right)); top: 55%; transform: translateY(-50%); height: 150px; width: 92px;
     border-radius: 20px; border: 3px solid rgba(255,255,255,.7); touch-action: none; overflow: hidden;
     background: linear-gradient(to bottom, rgba(60,200,90,.6) 0%, rgba(60,200,90,.6) 10%, rgba(60,200,90,.3) 38%,
       rgba(255,190,40,.45) 38%, rgba(255,190,40,.45) 60%, rgba(230,60,50,.3) 60%, rgba(230,60,50,.65) 90%, rgba(230,60,50,.65) 100%); }
