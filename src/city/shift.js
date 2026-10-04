@@ -26,7 +26,7 @@ export const HISTORY = () => [...Array(16).fill(5), 4, 4, 4, 4];   // a new driv
 // plan: the day's conditions.js dayPlan (null = a plain day-3-ish shift with everything on)
 export function makeShift(city, seed = 1, { ratings = HISTORY(), fx = null, plan = null } = {}) {
   return {
-    t: 0, money: 0, ratings: ratings.slice(), jobs: 0, log: [], over: null, order: null, R: rng(seed), events: [], fines: 0,
+    t: 0, money: 0, ratings: ratings.slice(), jobs: 0, offers: [], log: [], over: null, order: null, R: rng(seed), events: [], fines: 0,
     plan: plan || { kinds: ["food", "drink"], pace: SHIFT.pace, maxDist: 520, surge: null, cameras: [], closed: [] },
     fx: fx || { tipMul: 1, timeMul: 1, spillMul: 1, starBonus: 0, lateForgive: false },
   };
@@ -35,11 +35,11 @@ export function makeShift(city, seed = 1, { ratings = HISTORY(), fx = null, plan
 export const avgRating = (rs) => { const r = rs.slice(-SHIFT.memory); return r.reduce((a, b) => a + b, 0) / r.length; };
 export const rating = (sh) => avgRating(sh.ratings);
 
-function newOrder(sh, city, car) {
+// Offers: after each delivery a few orders light up at different restaurants; whichever you stop
+// at is the one you take (user, 2026-10-04: choose by driving, not from a menu). An order's clock
+// starts when you pick it up.
+function makeOffer(sh, city, rest) {
   const R = sh.R, plan = sh.plan;
-  // only restaurants selling something that's on today
-  const open = city.restaurants.filter((r) => r.kinds.some((k) => plan.kinds.includes(k)));
-  const rest = open[Math.floor(R() * open.length)];
   const kinds = rest.kinds.filter((k) => plan.kinds.includes(k));
   const kind = kinds[Math.floor(R() * kinds.length)];
   // a customer a reasonable drive away, not behind today's barricades
@@ -50,22 +50,52 @@ function newOrder(sh, city, car) {
     d = placeDistance(city, rest, cust);
     if (d > 180 && d < plan.maxDist) break;
   }
-  const toRest = placeDistance(city, { x: car.x, z: car.z }, rest);
-  const time = ((toRest + d) / plan.pace + SHIFT.slack) * sh.fx.timeMul;
-  sh.order = {
-    rest, cust, kind, dist: d, time, left: time, phase: "pickup", spill: 0, hold: 0,
-    pay: SHIFT.base + (SHIFT.perKm * d) / 1000,
+  const surge = inSurge(plan.surge, cust.x, cust.z);
+  const pay = SHIFT.base + (SHIFT.perKm * d) / 1000;
+  return {
+    rest, cust, kind, dist: d, pay, surge, phase: "offer", spill: 0, hold: 0, time: 0, left: 0,
     item: rest.menu[kind][Math.floor(R() * rest.menu[kind].length)],
+    // what the app advertises: base pay plus the best possible tip
+    est: (pay + SHIFT.tipMax * sh.fx.tipMul) * (surge ? SHIFT.surgeMul : 1),
   };
-  sh.events.push({ type: "order", order: sh.order });
+}
+
+function newOffers(sh, city) {
+  const open = city.restaurants.filter((r) => r.kinds.some((k) => sh.plan.kinds.includes(k)));
+  const pool = open.slice();
+  sh.offers = [];
+  while (sh.offers.length < 3 && pool.length) sh.offers.push(makeOffer(sh, city, pool.splice(Math.floor(sh.R() * pool.length), 1)[0]));
+  sh.events.push({ type: "offers", offers: sh.offers });
+}
+
+function take(sh, o) {
+  o.phase = "dropoff";
+  o.time = (o.dist / sh.plan.pace + SHIFT.slack) * sh.fx.timeMul;
+  o.left = o.time;
+  sh.order = o; sh.offers = [];
+  sh.events.push({ type: "pickup", order: o });
+}
+
+// stopping inside a zone: under the stop speed for the hold time
+function stopIn(o, target, car, slow) {
+  o.inZone = Math.hypot(car.x - target.x, car.z - target.z) < SHIFT.zoneR;
+  o.hold = o.inZone && slow ? o.hold + DT : 0;
+  return o.hold >= SHIFT.stopHold;
 }
 
 export function stepShift(sh, city, car) {
   sh.events.length = 0;
   if (sh.over) return;
   sh.t += DT;
-  if (!sh.order) newOrder(sh, city, car);
+  const slow = Math.hypot(car.vx, car.vz) < SHIFT.stopSpeed;
+  if (!sh.order) {
+    if (!sh.offers?.length) newOffers(sh, city);
+    for (const of of sh.offers) if (stopIn(of, of.rest, car, slow)) { take(sh, of); break; }
+  }
+  cameras(sh, car);
+  if (sh.t >= SHIFT.length && !sh.over) sh.over = "time";
   const o = sh.order;
+  if (!o) return;
   o.left -= DT;
   // drinks spill: hard cornering/braking/acceleration and knocks
   if (o.kind === "drink" && o.phase === "dropoff") {
@@ -81,7 +111,11 @@ export function stepShift(sh, city, car) {
     for (const e of car.events) if (e.type === "wall") o.spill += e.speed * SHIFT.cakeHit * sh.fx.spillMul;
     o.spill = Math.min(1, o.spill);
   }
-  // speed cameras: a fine for passing one too fast
+  if (stopIn(o, o.cust, car, slow)) { o.hold = 0; deliver(sh); }
+}
+
+// speed cameras: a fine for passing one too fast
+function cameras(sh, car) {
   for (const c of sh.plan.cameras) {
     c.cool = Math.max(0, c.cool - DT);
     if (c.cool <= 0 && Math.hypot(car.x - c.cx, car.z - c.cz) < SHIFT.camR && Math.hypot(car.vx, car.vz) > SHIFT.camLimit) {
@@ -89,18 +123,6 @@ export function stepShift(sh, city, car) {
       sh.events.push({ type: "fine", cam: c, speed: Math.hypot(car.vx, car.vz) });
     }
   }
-  // stopping in the zone
-  const target = o.phase === "pickup" ? o.rest : o.cust;
-  const inZone = Math.hypot(car.x - target.x, car.z - target.z) < SHIFT.zoneR;
-  const slow = Math.hypot(car.vx, car.vz) < SHIFT.stopSpeed;
-  o.hold = inZone && slow ? o.hold + DT : 0;
-  o.inZone = inZone;
-  if (o.hold >= SHIFT.stopHold) {
-    o.hold = 0;
-    if (o.phase === "pickup") { o.phase = "dropoff"; sh.events.push({ type: "pickup", order: o }); }
-    else deliver(sh);
-  }
-  if (sh.t >= SHIFT.length && !sh.over) sh.over = "time";
 }
 
 function deliver(sh) {

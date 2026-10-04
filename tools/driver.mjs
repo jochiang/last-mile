@@ -6,15 +6,20 @@ import { stepShift } from "../src/city/shift.js";
 
 /** Drive one shift to the end. p: the car's physics (mods applied). log(msg) for --why output. */
 export function driveShift(city, car, sh, p, log = null, traffic = null, stats = null) {
-  let rt = null, rtT = 0, walls = 0, poles = 0, resets = 0, tick = 0;
+  let rt = null, rtT = 0, walls = 0, poles = 0, resets = 0, tick = 0, chosen = null;
   while (!sh.over) {
     stepShift(sh, city, car);
     for (const e of sh.events) {
       if (e.type === "delivered" && log) log(`  delivered ${e.item} to ${e.to}: $${e.earned.toFixed(2)} (tip ${e.tip.toFixed(2)}) ${"*".repeat(Math.round(e.stars))} late ${e.late.toFixed(1)}s quality ${(e.quality * 100).toFixed(0)}%`);
     }
-    const o = sh.order;
-    if (!o) continue;
-    const target = o.phase === "pickup" ? o.rest : o.cust;
+    // no order yet: take the nearest offer by street distance (a simple policy; a player can do better)
+    let o = sh.order, target;
+    if (o) target = o.cust;
+    else {
+      if (!sh.offers.length) continue;
+      if (!chosen || !sh.offers.includes(chosen)) chosen = sh.offers.reduce((b, of) => (route(city, car.x, car.z, car.h, of.rest).length < route(city, car.x, car.z, car.h, b.rest).length ? of : b));
+      o = chosen; target = o.rest;
+    }
     if (!rt || tick - rtT > 15) { rt = route(city, car.x, car.z, car.h, target, Math.max(0, car.u), rt?.target === target ? rt : null); rt.target = target; rtT = tick; }
     // pure pursuit along the polyline
     const s = Math.hypot(car.vx, car.vz), look = 6 + s * 0.5;

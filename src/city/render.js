@@ -358,7 +358,32 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     scene.add(g);
     return g;
   }
-  const pickBeacon = beacon(0xffa31a), dropBeacon = beacon(0x3dff7a);
+  const pickBeacons = [beacon(0xffa31a), beacon(0xffa31a), beacon(0xffa31a)], dropBeacon = beacon(0x3dff7a);
+  // a floating tag over each offer: what it is, what it pays, how far it goes
+  const tags = pickBeacons.map((b) => {
+    const cv = document.createElement("canvas"); cv.width = 256; cv.height = 96;
+    // a constant size on screen, so it reads from across the district
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, fog: false, sizeAttenuation: false }));
+    sp.scale.set(0.2, 0.075, 1); sp.position.y = 8; sp.renderOrder = 5;
+    b.add(sp);
+    return { cv, sp };
+  });
+  function setOffers(offers) {
+    pickBeacons.forEach((b, i) => {
+      const of = offers[i], t = tags[i];
+      b.userData.surge = !!(of && of.surge);
+      if (!of) return;
+      const g = t.cv.getContext("2d");
+      g.clearRect(0, 0, 256, 96);
+      g.fillStyle = of.surge ? "rgba(120,20,95,.85)" : "rgba(16,21,28,.82)";
+      g.beginPath(); g.roundRect(4, 4, 248, 88, 16); g.fill();
+      g.fillStyle = "#fff"; g.font = "800 30px system-ui, sans-serif"; g.textAlign = "center";
+      g.fillText(`${{ food: "🍕", drink: "🥤", cake: "🎂" }[of.kind]} $${of.est.toFixed(0)}${of.surge ? " SURGE" : ""}`, 128, 42);
+      g.font = "600 22px system-ui, sans-serif"; g.fillStyle = "#cfe0ff";
+      g.fillText(`${of.rest.sign} · ${Math.round(of.dist / 10) * 10} m`, 128, 76);
+      t.sp.material.map.needsUpdate = true;
+    });
+  }
 
   // the GPS line
   const gpsMat = new THREE.MeshBasicMaterial({ map: chevronTexture(), vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 });
@@ -521,10 +546,12 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
 
     if (glow.visible) glow.material.opacity = 1;
     // beacons
-    for (const [b, p] of [[pickBeacon, view.pickup], [dropBeacon, view.dropoff]]) {
+    const pk = view.pickups || [];
+    for (const [b, p] of [[pickBeacons[0], pk[0]], [pickBeacons[1], pk[1]], [pickBeacons[2], pk[2]], [dropBeacon, view.dropoff]]) {
       b.visible = !!p;
       if (!p) continue;
       b.position.set(p.x, 0, p.z);
+      if (b !== dropBeacon) { const hex = b.userData.surge ? 0xff3bd0 : 0xffa31a; b.userData.col.material.color.setHex(hex); b.userData.ring.material.color.setHex(hex); b.userData.fill.material.color.setHex(hex); }
       const pulse = 0.5 + 0.5 * Math.sin(t * 5);
       b.userData.ring.scale.setScalar(1 + pulse * 0.06);
       b.userData.fill.material.opacity = p.inZone ? 0.45 : 0.15 + pulse * 0.08;
@@ -661,7 +688,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     if (plan.surge) {
       const r = plan.surge;
       const pad = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial({ color: 0x5a1048, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
+        new THREE.MeshBasicMaterial({ color: 0x24081d, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
       pad.position.set((r.x0 + r.x1) / 2, 0.1, (r.z0 + r.z1) / 2);
       dayGroup.add(pad);
       for (const [x, z] of [[r.x0, r.z0], [r.x1, r.z0], [r.x0, r.z1], [r.x1, r.z1]]) {
@@ -713,5 +740,5 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     poles.instanceMatrix.needsUpdate = true;
     if (heads) heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
   }
-  return { resize, frame, setRoute, colorRoute, setUnderglow, setPlayerCar, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
+  return { resize, frame, setRoute, colorRoute, setUnderglow, setPlayerCar, setOffers, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
 }

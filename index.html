@@ -26,6 +26,10 @@
   #spill { margin-top: 5px; display: none; align-items: center; gap: 6px; font-size: 11px; }
   #spill .bar { flex: 1; height: 7px; background: rgba(255,255,255,.15); border-radius: 4px; overflow: hidden; }
   #spill .bar span { display: block; height: 100%; width: 100%; background: #7fd8ff; }
+  #offers .offer { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; font-size: 13px; padding: 2px 0; font-variant-numeric: tabular-nums; }
+  #offers .offer b { color: #b7ffcf; }
+  #offers .offer i { font-style: normal; font-size: 10px; color: #16120a; background: #ff6bd6; border-radius: 5px; padding: 0 4px; }
+  #offers .offer.here { color: #ffd27a; }
   #stopping { height: 4px; margin-top: 5px; border-radius: 2px; background: rgba(255,255,255,.15); overflow: hidden; }
   #stopping span { display: block; height: 100%; width: 0; background: #fff; }
 
@@ -149,8 +153,11 @@
 <div class="hud panel" id="order">
   <div class="phase" id="ophase">PICK UP</div>
   <div class="where" id="owhere">–</div>
+  <div id="offers"></div>
+  <div id="orderbody">
   <div class="row"><span id="otime">0:00</span><span id="otip"></span></div>
   <div id="spill"><span>🥤</span><div class="bar"><span></span></div></div>
+  </div>
   <div id="stopping"><span></span></div>
 </div>
 <div class="hud" id="shiftbar"><div id="clock">6:00</div><div id="money">$0.00</div><div id="rating">★ 4.80</div><div id="conds"></div></div>

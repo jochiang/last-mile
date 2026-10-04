@@ -57,6 +57,7 @@ function newShift() {
   view.snapCamera();
 }
 const snap = (c) => ({ x: c.x, z: c.z, h: c.h });
+const KIND_ICON = { food: "🍕", drink: "🥤", cake: "🎂" };
 const lerpAng = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
 function tick() {
@@ -76,11 +77,18 @@ function tick() {
   for (const e of shift.events) onShiftEvent(e);
   // the GPS re-routes a few times a second
   const o = shift.order;
-  if (o && (++rtT >= 15 || !rt)) {
+  if ((o || shift.offers.length) && (++rtT >= 15 || !rt)) {
     rtT = 0;
     // route along the way the car is actually travelling (a slide points the nose elsewhere)
     const sp = Math.hypot(car.vx, car.vz), dirH = sp > 3 ? Math.atan2(car.vx, car.vz) : car.h;
-    rt = route(city, car.x, car.z, dirH, o.phase === "pickup" ? o.rest : o.cust, Math.max(0, car.u), rt);
+    // with an order: to the customer. Choosing: to the nearest offer (you can drive to any of them)
+    let dest = o ? o.cust : null;
+    if (!o) {
+      let best = Infinity;
+      for (const of of shift.offers) { const r = route(city, car.x, car.z, dirH, of.rest, Math.max(0, car.u)); if (r.length < best) { best = r.length; dest = of.rest; } }
+    }
+    rt = route(city, car.x, car.z, dirH, dest, Math.max(0, car.u), rt);
+    rt.dest = dest;
     rt.plan = speedPlan(rt);
     view.setRoute(rt.points, rt.plan);
   }
@@ -88,8 +96,8 @@ function tick() {
 }
 
 function onShiftEvent(e) {
-  if (e.type === "order") { rt = null; toast(`NEW ORDER`, `${e.order.item} from ${e.order.rest.name}`); audio.sfx("ping"); }
-  if (e.type === "pickup") { rt = null; toast("PICKED UP", `→ ${e.order.cust.label}`); audio.sfx("pickup"); }
+  if (e.type === "offers") { rt = null; toast(`${e.offers.length} NEW ORDERS`, "Drive to the one you want"); audio.sfx("ping"); view.setOffers(e.offers); }
+  if (e.type === "pickup") { rt = null; toast(`PICKED UP · ${e.order.item}`, `→ ${e.order.cust.label}${e.order.surge ? " · SURGE ×1.5" : ""}`); audio.sfx("pickup"); view.setOffers([]); }
   if (e.type === "fine") {
     toast("SPEED CAMERA −$6", `${Math.round(e.speed * 3.6)} km/h in a 60`);
     audio.sfx("shutter"); view.flashCamera(e.cam);
@@ -115,11 +123,19 @@ function hud() {
   $("money").style.color = run && run.cash + shift.money < billFor(run, run.day) ? "#ffb0a0" : "";
   $("rating").textContent = `★ ${rating(shift).toFixed(2)}${run && run.probation ? " · PROBATION" : ""}`;
   $("rating").style.color = rating(shift) < 4.3 ? "#ff8a7a" : "#ffe07a";
+  $("offers").style.display = o ? "none" : "block";
+  $("orderbody").style.display = o ? "block" : "none";
+  if (!o) {
+    $("ophase").textContent = "CHOOSE AN ORDER"; $("ophase").className = "phase pickup";
+    $("owhere").textContent = "Stop at any orange beacon";
+    $("offers").innerHTML = shift.offers.map((of) => `<div class="offer${of.inZone ? " here" : ""}"><span>${KIND_ICON[of.kind]} ${of.rest.sign}</span><span>${Math.round(of.dist / 10) * 10} m</span><b>$${of.est.toFixed(0)}${of.surge ? ' <i>SURGE</i>' : ""}</b></div>`).join("");
+    const held = shift.offers.find((of) => of.hold > 0);
+    $("stopping").firstElementChild.style.width = held ? `${Math.min(1, held.hold / SHIFT.stopHold) * 100}%` : "0%";
+  }
   if (o) {
-    const pick = o.phase === "pickup";
-    $("ophase").textContent = pick ? `PICK UP · ${o.item.toUpperCase()}` : `DELIVER · ${o.item.toUpperCase()}`;
+    $("ophase").textContent = `DELIVER · ${o.item.toUpperCase()}${o.surge ? " · SURGE" : ""}`;
     $("ophase").className = "phase " + o.phase;
-    $("owhere").textContent = pick ? o.rest.name : o.cust.label;
+    $("owhere").textContent = o.cust.label;
     $("otime").textContent = o.left >= 0 ? fmt(o.left) : `LATE ${fmt(-o.left)}`;
     $("otime").className = o.left < 0 ? "late" : o.left < 15 ? "warn" : "";
     const tip = o.left > 0 ? 7 * (o.left / o.time) * (1 - o.spill) : 0;
@@ -135,7 +151,7 @@ function hud() {
     $("turn").style.display = "flex";
     $("tarrow").textContent = { left: "↰", right: "↱", uturn: "↶", arrive: "◎" }[nt.dir];
     $("tdist").textContent = nt.dist < 15 ? (nt.dir === "arrive" ? "HERE" : "NOW") : `${Math.round(nt.dist / 10) * 10} m`;
-    $("tonto").textContent = nt.dir === "arrive" ? (o && o.phase === "pickup" ? o.rest.name : o ? o.cust.label : "") : nt.onto ? `onto ${nt.onto}` : "";
+    $("tonto").textContent = nt.dir === "arrive" ? (o ? o.cust.label : rt.dest?.name || "") : nt.onto ? `onto ${nt.onto}` : "";
     $("turn").classList.toggle("soon", nt.dist < 45);
     // a chime once per turn as it comes up, panned to the side you'll turn to
     if (nt.at && nt.dist < 45 && nt.dist > 8) {
@@ -235,13 +251,13 @@ function drawMap() {
   mctx.restore();
   // the destination: on the map if it's in range, otherwise pinned to the rim pointing at it
   const o = shift.order;
-  if (o) {
-    const p = o.phase === "pickup" ? o.rest : o.cust;
+  const marks = o ? [[o.cust, "#3dff7a"]] : shift.offers.map((of) => [of.rest, of.surge ? "#ff3bd0" : "#ffa31a"]);
+  for (const [p, colr] of marks) {
     const dx = p.x - car.x, dz = p.z - car.z, ang = car.h - Math.PI;
     let sx = (dx * Math.cos(ang) - dz * Math.sin(ang)) * mscale, sz = (dx * Math.sin(ang) + dz * Math.cos(ang)) * mscale;
     const r = Math.hypot(sx, sz), lim = c - 10;
     if (r > lim) { sx *= lim / r; sz *= lim / r; }
-    mctx.fillStyle = o.phase === "pickup" ? "#ffa31a" : "#3dff7a";
+    mctx.fillStyle = colr;
     mctx.beginPath(); mctx.arc(c + sx, c + sz, 9, 0, 7); mctx.fill();
     mctx.strokeStyle = "#fff"; mctx.lineWidth = 3; mctx.stroke();
   }
@@ -306,8 +322,8 @@ function loop(now) {
   view.drawTraffic(traffic.cars, running ? a : 1);
   view.frame(pose, dt, events, {
     route: running && rt,
-    pickup: o && o.phase === "pickup" ? { x: o.rest.x, z: o.rest.z, inZone: o.inZone } : null,
-    dropoff: o && o.phase === "dropoff" ? { x: o.cust.x, z: o.cust.z, inZone: o.inZone } : null,
+    pickups: o ? [] : shift.offers.map((of) => ({ x: of.rest.x, z: of.rest.z, inZone: of.inZone })),
+    dropoff: o ? { x: o.cust.x, z: o.cust.z, inZone: o.inZone } : null,
   });
   events.length = 0;
   hud(); knob(); drawMap();
