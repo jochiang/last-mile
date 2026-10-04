@@ -6,6 +6,7 @@ import { makeCityCar } from "../src/city/world.js";
 import { makeShift, rating } from "../src/city/shift.js";
 import { makeRun, effects, settleShift, repairCost, repair, buy, modById, ECON } from "../src/city/run.js";
 import { driveShift } from "./driver.mjs";
+import { dayPlan, applyPlan } from "../src/city/conditions.js";
 
 const args = process.argv.slice(2);
 const runs = +args.find((a) => /^\d+$/.test(a)) || 3;
@@ -19,13 +20,15 @@ for (let n = 0; n < runs; n++) {
   const run = makeRun(1000 + n * 37);
   while (!run.over && run.day <= 30) {
     const { fx, p } = effects(run);
+    const plan = dayPlan(city, run.seed, run.day);
+    applyPlan(city, plan, fx, p);
     for (const p of city.poles) p.broken = false;   // the city puts its lampposts back overnight
     const car = makeCityCar(city);
     car.cond = run.cond; car.dmgMul = fx.dmgMul; car.bullbar = fx.bullbar;
-    const sh = makeShift(city, run.seed + run.day, { ratings: run.ratings, fx });
+    const sh = makeShift(city, run.seed + run.day, { ratings: run.ratings, fx, plan });
     const drove = driveShift(city, car, sh, p);
     const d = settleShift(run, sh, car);
-    if (why) console.log(`  day ${d.day}: $${d.earned.toFixed(0)} (${d.jobs} jobs), bill $${d.bill}, cash $${run.cash.toFixed(0)}, car ${(run.cond * 100).toFixed(0)}%, rating ${(run.ratings.reduce((a, b) => a + b, 0) / run.ratings.length).toFixed(2)}, walls ${drove.walls}${run.over ? ` -> ${run.over}` : ""}`);
+    if (why) console.log(`  day ${d.day} [${plan.conds.join("+") || "-"}]: $${d.earned.toFixed(0)} (${d.jobs} jobs, fines $${sh.fines}), bill $${d.bill}, cash $${run.cash.toFixed(0)}, car ${(run.cond * 100).toFixed(0)}%, rating ${(run.ratings.reduce((a, b) => a + b, 0) / run.ratings.length).toFixed(2)}, walls ${drove.walls}${run.over ? ` -> ${run.over}` : ""}`);
     if (run.over) break;
     // garage: repair to 85% if it's cheap enough, then buy by priority
     if (run.cond < 0.85 && repairCost(run, 0.85) < run.cash * 0.6) repair(run, 0.85);

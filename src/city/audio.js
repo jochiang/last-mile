@@ -7,6 +7,7 @@ const GEARS = [0, 11, 20, 29, 38, 99];   // m/s where each gear tops out (rpm cl
 
 export function createAudio() {
   let ctx = null, master, comp, meter, eng = null, noise = null, loops = {}, vol = 1;
+  let rainOn = false;
   let gear = 0, rpm = 900, tickT = 0, lastTick = -1, beepT = 0, spillWas = 0;
 
   function init() {
@@ -47,7 +48,8 @@ export function createAudio() {
     loops.squeal = noiseLoop("bandpass", 1500, 6);
     loops.wind = noiseLoop("lowpass", 700, 0.7);
     loops.grass = noiseLoop("lowpass", 220, 1.5);
-    loops.reverse = null;
+    loops.rain = noiseLoop("highpass", 1800, 0.5);
+    loops.rainLow = noiseLoop("lowpass", 400, 0.5);
   }
   function noiseLoop(type, freq, q) {
     const src = ctx.createBufferSource(); src.buffer = noise; src.loop = true;
@@ -98,6 +100,7 @@ export function createAudio() {
     tick(urgent) { tone(urgent ? 1900 : 1500, 0.04, { type: "square", gain: 0.102 }); },
     slosh() { burst(0.35, { type: "bandpass", freq: 500, sweep: 1400, q: 2, gain: 0.3 }); },
     turn(pan) { tone(880, 0.09, { gain: 0.272, pan }); tone(1175, 0.14, { gain: 0.272, pan, at: 0.08 }); },
+    shutter() { burst(0.04, { type: "highpass", freq: 4000, gain: 0.5 }); burst(0.06, { type: "bandpass", freq: 1500, q: 3, gain: 0.4, at: 0.07 }); tone(330, 0.35, { type: "square", gain: 0.12, at: 0.15 }); },
     beep() { tone(1050, 0.22, { type: "square", gain: 0.05, attack: 0.01 }); },
     reset() { tone(500, 0.2, { glide: 250, type: "triangle", gain: 0.15 }); },
     buy() { SFX.kaching(); },
@@ -114,7 +117,7 @@ export function createAudio() {
     },
     setVolume(v) { vol = v; if (master) set(master.gain, v * 0.8, 0.02); },
     suspend() { ctx?.suspend(); },
-    resume() { init(); ctx.resume(); },
+    resume() { init(); ctx.resume(); this.setRain(rainOn); },
     sfx(name, ...a) { if (ctx && vol > 0) SFX[name](...a); },
     /** s: { running, speed, u, throttle, brake, slipF, slipR, off, reverse, cond } */
     update(s, dt) {
@@ -149,6 +152,7 @@ export function createAudio() {
       const k = left > 0 ? Math.ceil(left) : Math.floor(left * 2);
       if (k !== lastTick) { lastTick = k; if (left > 0) SFX.tick(left < 4); }
     },
+    setRain(on) { rainOn = on; if (!ctx) return; set(loops.rain.g.gain, on ? 0.09 : 0, 0.5); set(loops.rainLow.g.gain, on ? 0.12 : 0, 0.5); },
     spill(amount) {
       if (!ctx) return;
       if (amount - spillWas > 0.03) { SFX.slosh(); spillWas = amount; }

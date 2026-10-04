@@ -5,6 +5,7 @@ import { makeCityCar, stepCityCar, resetCityCar } from "./world.js";
 import { makeShift, stepShift, rating, avgRating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
 import { createAudio } from "./audio.js";
+import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
 import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON } from "./run.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
 import { DT } from "../car.js";
@@ -34,17 +35,18 @@ const events = [];
 
 function newShift() {
   car = makeCityCar(city);
-  if (run) {
-    const { fx, p } = effects(run);
-    carP = p;
-    car.cond = run.cond; car.dmgMul = fx.dmgMul; car.bullbar = fx.bullbar;
-    shift = makeShift(city, run.seed * 101 + run.day, { ratings: run.ratings, fx });
-    view.setUnderglow(fx.underglow);
-    view.resetPoles();
-  } else {
-    carP = effects(makeRun(1)).p;
-    shift = makeShift(city, 1);
-  }
+  const { fx, p } = effects(run || makeRun(1));
+  // the day's plan: order types, conditions, the clock (conditions.js)
+  const plan = dayPlan(city, run ? run.seed : 1, run ? run.day : 1);
+  applyPlan(city, plan, fx, p);
+  carP = p;
+  if (run) { car.cond = run.cond; car.dmgMul = fx.dmgMul; car.bullbar = fx.bullbar; }
+  shift = makeShift(city, run ? run.seed * 101 + run.day : 1, { ratings: run ? run.ratings : undefined, fx, plan });
+  view.setUnderglow(fx.underglow);
+  view.resetPoles();
+  view.setDay(plan, barriers(plan));
+  audio.setRain(plan.conds.includes("rain"));
+  $("conds").textContent = plan.conds.map((c) => CONDITIONS[c].name.toUpperCase()).join(" · ");
   rt = null; prev = snap(car);
   view.snapCamera();
 }
@@ -74,6 +76,11 @@ function tick() {
 function onShiftEvent(e) {
   if (e.type === "order") { rt = null; toast(`NEW ORDER`, `${e.order.item} from ${e.order.rest.name}`); audio.sfx("ping"); }
   if (e.type === "pickup") { rt = null; toast("PICKED UP", `→ ${e.order.cust.label}`); audio.sfx("pickup"); }
+  if (e.type === "fine") {
+    toast("SPEED CAMERA −$6", `${Math.round(e.speed * 3.6)} km/h in a 60`);
+    audio.sfx("shutter"); view.flashCamera(e.cam);
+    $("flash").classList.add("on"); setTimeout(() => $("flash").classList.remove("on"), 60);
+  }
   if (e.type === "delivered") {
     audio.sfx("kaching");
     if (e.late > 0 || e.stars < 4) audio.sfx("sad");
@@ -103,7 +110,8 @@ function hud() {
     $("otime").className = o.left < 0 ? "late" : o.left < 15 ? "warn" : "";
     const tip = o.left > 0 ? 7 * (o.left / o.time) * (1 - o.spill) : 0;
     $("otip").textContent = o.left > 0 ? `tip $${tip.toFixed(2)}` : "no tip";
-    $("spill").style.display = o.kind === "drink" ? "flex" : "none";
+    $("spill").style.display = o.kind === "drink" || o.kind === "cake" ? "flex" : "none";
+    $("spill").firstElementChild.textContent = o.kind === "cake" ? "🎂" : "🥤";
     $("spill").querySelector(".bar span").style.width = `${(1 - o.spill) * 100}%`;
     $("stopping").firstElementChild.style.width = `${Math.min(1, o.hold / SHIFT.stopHold) * 100}%`;
   }
@@ -196,6 +204,13 @@ function drawMap() {
   mctx.rotate(car.h - Math.PI);
   mctx.translate(-bx(car.x), -bz(car.z));
   mctx.drawImage(base, 0, 0);
+  // today: the surge zone, barricaded streets, cameras
+  const plan = shift.plan;
+  if (plan.surge) { mctx.fillStyle = "rgba(255,59,208,.28)"; mctx.fillRect(bx(plan.surge.x0), bz(plan.surge.z0), (plan.surge.x1 - plan.surge.x0) * mscale, (plan.surge.z1 - plan.surge.z0) * mscale); }
+  mctx.strokeStyle = "#ff4a3a"; mctx.lineWidth = 7;
+  for (const e of plan.closed || []) { mctx.beginPath(); mctx.moveTo(bx(e.ax + (e.bx - e.ax) * 0.2), bz(e.az + (e.bz - e.az) * 0.2)); mctx.lineTo(bx(e.ax + (e.bx - e.ax) * 0.8), bz(e.az + (e.bz - e.az) * 0.8)); mctx.stroke(); }
+  mctx.fillStyle = "#ffd23a";
+  for (const c of plan.cameras || []) { mctx.beginPath(); mctx.arc(bx(c.cx), bz(c.cz), 5, 0, 7); mctx.fill(); }
   if (rt) {
     mctx.strokeStyle = "#28dcff"; mctx.lineWidth = 6; mctx.lineJoin = "round"; mctx.beginPath();
     rt.points.forEach(([x, z], i) => (i ? mctx.lineTo(bx(x), bz(z)) : mctx.moveTo(bx(x), bz(z))));
@@ -299,6 +314,18 @@ function titleScreen() {
     <div class="row">${run && !run.over ? `<button class="go" data-act="continue">CONTINUE · DAY ${run.day}</button> <button class="sm" data-act="newrun">New run</button>` : `<button class="go" data-act="newrun">START RUN</button>`}</div>`;
 }
 
+// what today brings, shown in the garage before the shift
+function forecastHtml() {
+  const plan = dayPlan(city, run.seed, run.day);
+  const newKind = run.day === 2 ? "Drinks: they spill if you throw the car around." : run.day === 4 ? "Cakes from Sugar Rush Bakery: they hate hard braking and knocks." : null;
+  const rows = plan.conds.map((c) => {
+    const d = CONDITIONS[c];
+    return `<div>${d.minDay === run.day ? '<span class="new">NEW</span>' : ""}<b class="${d.good ? "good" : ""}">${d.name}</b>${d.desc}</div>`;
+  });
+  if (newKind) rows.unshift(`<div><span class="new">NEW</span><b>New orders</b>${newKind}</div>`);
+  return `<b>Today</b><div class="forecast">${rows.length ? rows.join("") : "<div>A quiet one. Clear skies, open roads.</div>"}</div>`;
+}
+
 function garageScreen(last) {
   const { fx } = effects(run);
   const fixTo = (t) => repairCost(run, t);
@@ -312,6 +339,7 @@ function garageScreen(last) {
     ${last ? `<div class="muted">Yesterday: ${last.jobs} deliveries, earned ${money(last.earned)}, car payment ${money(last.bill)}.</div>` : ""}
     ${run.probation ? `<div style="color:#ffb0a0;font-size:13px;margin:4px 0">⚠ PROBATION: your rating finished under 4.0. Finish today under it again and you're deactivated.</div>` : ""}
     <div class="stats"><div><b>${money(run.cash)}</b><span>CASH</span></div><div><b>${money(ECON.bill(run.day))}</b><span>PAYMENT AFTER TODAY</span></div><div><b>★ ${r.toFixed(2)}</b><span>RATING</span></div></div>
+    ${forecastHtml()}
     <div class="repair"><b>Car ${Math.round(run.cond * 100)}%</b> ${condBar(run.cond)}
       ${run.cond < 0.995 ? `<button class="sm" data-act="repair" data-to="${Math.min(1, run.cond + 0.25)}" ${fixTo(Math.min(1, run.cond + 0.25)) > run.cash ? "disabled" : ""}>Patch +25% ${money(fixTo(Math.min(1, run.cond + 0.25)))}</button>
         <button class="sm" data-act="repair" data-to="1" ${fixTo(1) > run.cash ? "disabled" : ""}>Full repair ${money(fixTo(1))}</button>` : `<span class="muted">mint</span>`}
@@ -425,4 +453,4 @@ newShift();
 show("title");
 requestAnimationFrame(loop);
 
-window.__lm = { get car() { return car; }, get shift() { return shift; }, city, input, settings, start, info: () => view.info(), audio };
+window.__lm = { get car() { return car; }, get shift() { return shift; }, city, input, settings, start, info: () => view.info(), audio, view };

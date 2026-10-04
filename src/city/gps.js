@@ -11,7 +11,7 @@ export function nearestEdge(city, x, z, h = null) {
   for (const e of city.edges) {
     const t = projT(e, x, z), px = e.ax + ((e.bx - e.ax) * t) / e.len, pz = e.az + ((e.bz - e.az) * t) / e.len;
     const d = Math.hypot(x - px, z - pz);
-    let score = d;
+    let score = d + (e.closed ? 25 : 0);   // a barricaded street only if you're really on it
     if (h !== null) {
       const cos = Math.abs(((e.bx - e.ax) * Math.sin(h) + (e.bz - e.az) * Math.cos(h)) / e.len);
       score += (1 - cos) * 12;
@@ -47,6 +47,7 @@ export function route(city, x, z, h, dest, speed = 0) {
     if (u < 0) break;
     done[u] = 1;
     for (const { n, e: ed } of city.nodes[u].adj) {
+      if (ed.closed) continue;   // road works
       const nd = ud + ed.len;
       if (nd < dist[n]) { dist[n] = nd; prev[n] = u; }
     }

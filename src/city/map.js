@@ -31,6 +31,7 @@ const STS = ["Oak St", "Elm St", "Pine St", "Maple St", "Cedar St", "Birch St", 
 export const RESTAURANTS = [
   { id: "pizza", name: "Pizza Palazzo", sign: "PIZZA", block: [1, 0], face: "E", color: 0xe8463c, kinds: ["food"], menu: { food: ["Pizza", "Calzone", "Garlic knots"] } },
   { id: "shakes", name: "Shake Shack-ish", sign: "SHAKES", block: [3, 4], face: "W", color: 0xff7ab8, kinds: ["drink"], menu: { drink: ["Large shake", "Shakes x3", "Malted"] } },
+  { id: "bakery", name: "Sugar Rush Bakery", sign: "CAKES", block: [0, 4], face: "S", color: 0xb98cff, kinds: ["cake"], menu: { cake: ["Birthday cake", "Wedding cake (small)", "Cupcakes x12"] } },
   { id: "noodles", name: "Noodle Bar", sign: "NOODLES", block: [5, 1], face: "N", color: 0xffb020, kinds: ["food", "drink"], menu: { food: ["Noodles", "Dumplings"], drink: ["Bubble tea", "Iced coffee x3"] } },
 ];
 
@@ -223,7 +224,11 @@ export function buildCity(seed = 7) {
   };
   for (const b of boxes) bucket(b, b.x0, b.z0, b.x1, b.z1);
   for (const c of circles) bucket(c, c.x - c.r, c.z - c.r, c.x + c.r, c.z + c.r);
+  // colliders that come and go with the day (road-work barricades)
+  let extra = [];
+  const setExtra = (list) => { extra = list; };
   const near = (x, z, rad, fn) => {
+    for (const o of extra) if (x + rad > o.x0 && x - rad < o.x1 && z + rad > o.z0 && z - rad < o.z1) fn(o);
     const seen = new Set();
     for (let j = Math.max(0, Math.floor((z - rad - S0) / CELL)); j <= Math.min(GN - 1, Math.floor((z + rad - S0) / CELL)); j++)
       for (let i = Math.max(0, Math.floor((x - rad - S0) / CELL)); i <= Math.min(GN - 1, Math.floor((x + rad - S0) / CELL)); i++)
@@ -232,7 +237,7 @@ export function buildCity(seed = 7) {
 
   return {
     nodes, edges, removed, deadNodes, buildings, boxes, circles, trees, poles, parkedCars, dumpsters, parks, lots, alleys,
-    restaurants, addresses, surfaceAt, near, bounds: { x0: S0, z0: S0, x1: S0 + SN, z1: S0 + SN }, inner: { x0: E0, x1: E1 },
+    restaurants, addresses, surfaceAt, near, setExtra, bounds: { x0: S0, z0: S0, x1: S0 + SN, z1: S0 + SN }, inner: { x0: E0, x1: E1 },
     start: { x: X(3) + LANE, z: X(4) - 14, h: Math.PI },   // 4th Ave, heading north
   };
 }

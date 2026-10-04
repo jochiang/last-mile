@@ -496,10 +496,105 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     cam.fov += (fov - cam.fov) * Math.min(1, dt * 3);
     camera.fov = cam.fov;
     camera.updateProjectionMatrix();
+    dayFrame(dt, t, pose.x, pose.z, Math.sin(pose.h) * pose.speed, Math.cos(pose.h) * pose.speed);
     renderer.render(scene, camera);
   }
 
   function setUnderglow(hex) { glow.visible = !!hex; if (hex) glow.material.color.setHex(hex); }
+  // --- the day's conditions: barricades, speed cameras, the surge zone, rain
+  let dayGroup = null, rain = null, blinkers = [], camFlash = [];
+  const stripe = (() => {
+    const cv = document.createElement("canvas"); cv.width = 64; cv.height = 16;
+    const g = cv.getContext("2d");
+    for (let k = 0; k < 8; k++) { g.fillStyle = k % 2 ? "#f4f4f4" : "#ff6a1a"; g.beginPath(); g.moveTo(k * 16 - 16, 16); g.lineTo(k * 16, 0); g.lineTo(k * 16 + 16, 0); g.lineTo(k * 16, 16); g.fill(); }
+    const t = new THREE.CanvasTexture(cv); t.wrapS = THREE.RepeatWrapping; return t;
+  })();
+  function setDay(plan, barricades) {
+    if (dayGroup) { scene.remove(dayGroup); dayGroup.traverse((o) => { o.geometry?.dispose(); }); }
+    dayGroup = new THREE.Group(); blinkers = []; camFlash = [];
+    // barricades: striped boards on legs, blinking amber lamps, cones scattered behind
+    for (const b of barricades) {
+      const w = b.x1 - b.x0, d = b.z1 - b.z0, long = Math.max(w, d), alongX = w > d;
+      const tex = stripe.clone(); tex.needsUpdate = true; tex.repeat.set(long / 2, 1);
+      const board = new THREE.Mesh(new THREE.BoxGeometry(alongX ? long : 0.15, 0.6, alongX ? 0.15 : long), new THREE.MeshBasicMaterial({ map: tex, color: 0xb0b0b0 }));
+      board.position.set((b.x0 + b.x1) / 2, 0.9, (b.z0 + b.z1) / 2);
+      dayGroup.add(board);
+      for (let k = 0; k < long; k += 3) {
+        const lx = alongX ? b.x0 + k + 1 : (b.x0 + b.x1) / 2, lz = alongX ? (b.z0 + b.z1) / 2 : b.z0 + k + 1;
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25), new THREE.MeshBasicMaterial({ color: 0xffb020 }));
+        lamp.position.set(lx, 1.35, lz); dayGroup.add(lamp); blinkers.push({ m: lamp, phase: k * 0.37 });
+      }
+    }
+    for (const e of plan.closed) {
+      for (let k = 0; k < 6; k++) {
+        const s = 18 + k * 4.5, x = e.ax + ((e.bx - e.ax) * s) / e.len, z = e.az + ((e.bz - e.az) * s) / e.len;
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.8, 8), new THREE.MeshBasicMaterial({ color: 0xff6a1a }));
+        const off = (k % 2 ? 1 : -1) * 2.5;
+        cone.position.set(x + (Math.abs(e.ax - e.bx) < 1 ? off : 0), 0.4, z + (Math.abs(e.ax - e.bx) < 1 ? 0 : off));
+        dayGroup.add(cone);
+      }
+    }
+    // speed cameras: a post, a yellow box, a "60" plate; they flash when they catch you
+    for (const c of plan.cameras) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 3.2, 6), new THREE.MeshLambertMaterial({ color: 0x555a63 }));
+      post.position.set(c.x, 1.6, c.z);
+      const boxm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.7), new THREE.MeshBasicMaterial({ color: 0xffd23a }));
+      boxm.position.set(c.x, 3.4, c.z);
+      const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+      const g = cv.getContext("2d");
+      g.fillStyle = "#fff"; g.beginPath(); g.arc(32, 32, 30, 0, 7); g.fill(); g.strokeStyle = "#e33"; g.lineWidth = 7; g.stroke();
+      g.fillStyle = "#111"; g.font = "900 28px system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("60", 32, 34);
+      const plate = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv) }));
+      plate.position.set(c.x, 2.4, c.z); plate.scale.set(0.9, 0.9, 1);
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+      flash.position.set(c.x, 3.4, c.z);
+      dayGroup.add(post, boxm, plate, flash);
+      camFlash.push({ c, flash, t: 0 });
+    }
+    // the surge zone: a pink glow on the ground and pink columns at its corners
+    if (plan.surge) {
+      const r = plan.surge;
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0x5a1048, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
+      pad.position.set((r.x0 + r.x1) / 2, 0.1, (r.z0 + r.z1) / 2);
+      dayGroup.add(pad);
+      for (const [x, z] of [[r.x0, r.z0], [r.x1, r.z0], [r.x0, r.z1], [r.x1, r.z1]]) {
+        const col = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 60, 10, 1, true), new THREE.MeshBasicMaterial({ color: 0xff3bd0, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+        col.position.set(x, 30, z);
+        dayGroup.add(col);
+      }
+    }
+    scene.add(dayGroup);
+    // rain: streaks in a box that travels with the camera; the fog closes in
+    if (rain) { scene.remove(rain); rain.geometry.dispose(); rain = null; }
+    const wet = plan.conds.includes("rain");
+    if (scene.fog) scene.fog.far = wet ? (night ? 170 : 240) : night ? 230 : 330;
+    if (wet) {
+      const N = 900, pos = new Float32Array(N * 6);
+      for (let i = 0; i < N; i++) { const x = (Math.random() - 0.5) * 50, y = Math.random() * 18, z = (Math.random() - 0.5) * 50; pos.set([x, y, z, x, y - 0.7, z], i * 6); }
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x9fb8d8, transparent: true, opacity: 0.45 }));
+      rain.frustumCulled = false;
+      scene.add(rain);
+    }
+  }
+  function flashCamera(c) { const f = camFlash.find((q) => q.c === c); if (f) f.t = 0.35; }
+  function dayFrame(dt, t, carX, carZ, vx, vz) {
+    for (const b of blinkers) b.m.visible = Math.sin(t * 6 + b.phase) > 0;
+    for (const f of camFlash) { f.t = Math.max(0, f.t - dt); f.flash.material.opacity = f.t * 2.4; f.flash.scale.setScalar(1 + (0.35 - f.t) * 4); }
+    if (rain) {
+      // fall, and stream past with the car's motion; wrap round a box centred on the car
+      const a = rain.geometry.attributes.position.array;
+      for (let i = 0; i < a.length; i += 6) {
+        let x = a[i] - vx * dt * 0.3, y = a[i + 1] - 22 * dt, z = a[i + 2] - vz * dt * 0.3;
+        if (y < 0) y += 18;
+        if (x - carX > 25) x -= 50; if (x - carX < -25) x += 50;
+        if (z - carZ > 25) z -= 50; if (z - carZ < -25) z += 50;
+        a[i] = x; a[i + 1] = y; a[i + 2] = z; a[i + 3] = x + vx * 0.02; a[i + 4] = y - 0.7; a[i + 5] = z + vz * 0.02;
+      }
+      rain.geometry.attributes.position.needsUpdate = true;
+    }
+  }
   // a new shift: lampposts back up, lights back on
   function resetPoles() {
     city.poles.forEach((p, i) => {
@@ -512,5 +607,5 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     poles.instanceMatrix.needsUpdate = true;
     if (heads) heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
   }
-  return { resize, frame, setRoute, colorRoute, setUnderglow, resetPoles, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
+  return { resize, frame, setRoute, colorRoute, setUnderglow, resetPoles, setDay, flashCamera, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
 }
