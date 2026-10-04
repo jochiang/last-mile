@@ -328,7 +328,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-    g.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(ss.length * 3).fill(1), 3));
+    // rgba: the alpha hides the stretch under and behind the car (see colorRoute)
+    g.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(ss.length * 4).fill(0), 4));
     gps.geometry.dispose();
     gps.geometry = g;
     routeS = ss; plan = speedPlan;
@@ -339,14 +340,15 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     if (!routeS || !plan) return;
     const col = gps.geometry.attributes.color;
     for (let i = 0; i < routeS.length; i++) {
+      // start just past the front bumper and fade in over a few metres
+      const vis = Math.max(0, Math.min(1, (routeS[i] - sCar - 2.6) / 3));
       const over = speed - allowed(plan, routeS[i]);
       if (over > 1) mix.copy(RED);
       else if (over > -4) mix.copy(YELLOW).lerp(RED, Math.max(0, (over + 4) / 5));
       else mix.copy(BLUE).lerp(YELLOW, Math.max(0, (over + 8) / 4));
-      col.setXYZ(i, mix.r, mix.g, mix.b);
+      col.setXYZW(i, mix.r, mix.g, mix.b, vis);
     }
     col.needsUpdate = true;
-    void sCar;
   }
 
   // particles: tyre smoke, sparks off walls, lamppost debris

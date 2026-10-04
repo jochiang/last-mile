@@ -48,8 +48,9 @@ export function createAudio() {
     loops.squeal = noiseLoop("bandpass", 1500, 6);
     loops.wind = noiseLoop("lowpass", 700, 0.7);
     loops.grass = noiseLoop("lowpass", 220, 1.5);
-    loops.rain = noiseLoop("highpass", 1800, 0.5);
-    loops.rainLow = noiseLoop("lowpass", 400, 0.5);
+    // rain: a soft band-limited hiss and a low patter (full-band noise sounds far louder than it measures)
+    loops.rain = noiseLoop("bandpass", 2600, 0.7);
+    loops.rainLow = noiseLoop("lowpass", 350, 0.5);
   }
   function noiseLoop(type, freq, q) {
     const src = ctx.createBufferSource(); src.buffer = noise; src.loop = true;
@@ -153,7 +154,7 @@ export function createAudio() {
       const k = left > 0 ? Math.ceil(left) : Math.floor(left * 2);
       if (k !== lastTick) { lastTick = k; if (left > 0) SFX.tick(left < 4); }
     },
-    setRain(on) { rainOn = on; if (!ctx) return; set(loops.rain.g.gain, on ? 0.09 : 0, 0.5); set(loops.rainLow.g.gain, on ? 0.12 : 0, 0.5); },
+    setRain(on) { rainOn = on; if (!ctx) return; set(loops.rain.g.gain, on ? 0.03 : 0, 0.5); set(loops.rainLow.g.gain, on ? 0.045 : 0, 0.5); },
     spill(amount) {
       if (!ctx) return;
       if (amount - spillWas > 0.03) { SFX.slosh(); spillWas = amount; }
