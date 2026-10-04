@@ -45,7 +45,7 @@ function newShift() {
   carP = p;
   if (run) { car.cond = run.cond; car.dmgMul = fx.dmgMul; car.bullbar = fx.bullbar; }
   shift = makeShift(city, run ? run.seed * 101 + run.day : 1, { ratings: run ? run.ratings : undefined, fx, plan });
-  view.setPlayerCar(run ? run.car || "liftback" : "liftback");
+  view.setPlayerCar(run ? run.car || "liftback" : "liftback", run ? run.mods : []);
   audio.setPitch(carOf(run || {}).audio.pitch);
   view.setUnderglow(fx.underglow);
   view.resetPoles();
@@ -365,8 +365,8 @@ function garageScreen(last) {
   const r = avgRating(run.ratings);
   const offers = run.offers.map((id) => {
     const m = modById[id];
-    return `<div class="mod"><span class="tag ${m.kind}">${m.kind === "perf" ? "PERFORMANCE" : m.kind === "cargo" ? "CARGO" : "STYLE"}</span><b>${m.name}</b><span class="d">${m.desc}</span>
-      <button data-act="buy" data-id="${id}" ${m.price > run.cash ? "disabled" : ""}>${money(m.price)}</button></div>`;
+    return `<div class="mod${previewMod === id ? " previewing" : ""}" data-act="preview" data-id="${id}"><span class="tag ${m.kind}">${m.kind === "perf" ? "PERFORMANCE" : m.kind === "cargo" ? "CARGO" : "STYLE"}</span><b>${m.name}</b><span class="d">${m.desc}</span>
+      <button data-act="buy" data-id="${id}" ${m.price > run.cash ? "disabled" : ""}>${money(m.price)}</button>${previewMod === id ? '<span class="d" style="color:#ffd27a">Previewing on your car</span>' : ""}</div>`;
   }).join("") || `<div class="muted">Sold out.</div>`;
   return `<h2 class="big">DAY ${run.day} · GARAGE <small style="font-size:14px;opacity:.7">${carOf(run).name}</small></h2>
     ${last ? `<div class="muted">Yesterday: ${last.jobs} deliveries, earned ${money(last.earned)}, car payment ${money(last.bill)}.</div>` : ""}
@@ -394,12 +394,20 @@ function overScreen() {
     <div class="row"><button class="go" data-act="newrun">NEW RUN</button> <button class="sm" data-act="title">Title</button></div>`;
 }
 
-let curScreen = "title", lastDay = null;
+let curScreen = "title", lastDay = null, previewMod = null;
 function show(which) {
   curScreen = which;
+  // the garage: the shop becomes a panel on the right, your car on a turntable on the left
+  const g = which === "garage" && !!run;
+  $("menu").classList.toggle("garage", g);
+  document.body.classList.toggle("garage-on", g);
+  if (!g) previewMod = null;
+  view.showGarage(g, run?.car || "liftback", run?.mods || [], previewMod);
+  const keep = $("menu").querySelector(".card").scrollTop;
   $("screen").innerHTML = which === "garage" ? garageScreen(lastDay) : which === "over" ? overScreen() : which === "pause" ? pauseScreen() : which === "cars" ? carsScreen() : titleScreen();
   renderSettings();
   $("menu").classList.remove("hidden");
+  if (g) $("menu").querySelector(".card").scrollTop = keep;
 }
 // pick a car: it sets the run's physics, toughness and payment curve (cars.js)
 function carsScreen() {
@@ -437,7 +445,7 @@ function renderSettings() {
   audio.setVolume(settings.volume);
 }
 $("screen").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-act]");
+  const b = e.target.closest("button[data-act]") || e.target.closest(".mod[data-act]");
   if (!b) return;
   const act = b.dataset.act;
   if (act === "newrun") { show("cars"); return; }
@@ -447,7 +455,8 @@ $("screen").addEventListener("click", (e) => {
   if (act === "resume") { start(); return; }
   if (act === "abandon") { shift.over = "abandoned"; running = false; endShift(); return; }
   if (act === "title") { show("title"); return; }
-  if (act === "buy" && buy(run, b.dataset.id)) audio.sfx("buy");
+  if (act === "preview") { previewMod = previewMod === b.dataset.id ? null : b.dataset.id; show("garage"); return; }
+  if (act === "buy" && buy(run, b.dataset.id)) { audio.sfx("buy"); previewMod = null; }
   if (act === "reroll" && reroll(run)) audio.sfx("tick", false);
   if (act === "repair" && repair(run, +b.dataset.to)) audio.sfx("repair");
   persist();
@@ -463,6 +472,13 @@ for (const id of ["dragRange", "dragDead", "dragCurve", "pedalH", "volume"]) {
   $(id).addEventListener("input", (e) => { settings[id] = +e.target.value; saveSettings(settings); renderSettings(); });
 }
 $("pause").addEventListener("click", pause);
+{
+  let dragX = null;
+  $("menu").addEventListener("pointerdown", (e) => { if (e.target === $("menu") && curScreen === "garage") { dragX = e.clientX; $("menu").setPointerCapture(e.pointerId); } });
+  $("menu").addEventListener("pointermove", (e) => { if (dragX !== null) { view.garageDrag(e.clientX - dragX); dragX = e.clientX; } });
+  const end = () => { dragX = null; };
+  $("menu").addEventListener("pointerup", end); $("menu").addEventListener("pointercancel", end);
+}
 addEventListener("keydown", (e) => {
   if (e.code === "Escape") { if (running) pause(); else if (curScreen === "pause") start(); }
   if (e.code === "KeyR" && running) resetCityCar(car, city);

@@ -19,9 +19,12 @@ const hexOf = (m) => (m.userData?.game_color ?? m.color?.getHex() ?? 0xffffff);
 /** The game's material for a model material, by its name. tint: paint is white, tinted per instance. */
 export function gameMaterial(m, { tint = false } = {}) {
   const name = m.name || "";
-  if (name === "lamp_head") return new THREE.MeshBasicMaterial({ color: 0xfff4d6 });
-  if (name === "lamp_tail") return new THREE.MeshBasicMaterial({ color: tint ? 0xffffff : 0xff2a2a });
-  return new THREE.MeshLambertMaterial({ color: tint && name === "paint" ? 0xffffff : hexOf(m), flatShading: true });
+  let out;
+  if (name === "lamp_head") out = new THREE.MeshBasicMaterial({ color: 0xfff4d6 });
+  else if (name === "lamp_tail") out = new THREE.MeshBasicMaterial({ color: tint ? 0xffffff : 0xff2a2a });
+  else out = new THREE.MeshLambertMaterial({ color: tint && name === "paint" ? 0xffffff : hexOf(m), flatShading: true });
+  out.name = name;   // kept so mods can find the paint, the hubs, the bag
+  return out;
 }
 
 /** A player car from a model: { group, body, wheels: [FL, FR, RL, RR] pivots, len, wid }. */

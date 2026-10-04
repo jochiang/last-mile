@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { X, NB, CURB, LINE, PITCH } from "./map.js";
 import { loadCarModels, playerFromModel, partsFromModel, gameMaterial } from "./models.js";
+import { decorate, tickMods } from "./carmods.js";
 
 const C = {
   sky: 0xbfe3ff, asphalt: 0x4b4e56, sidewalk: 0xb8b3a8, curb: 0xd8d4cb, dash: 0xf2d24b, white: 0xf4f4f4,
@@ -319,11 +320,12 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
 
   // the player's car: one of three models (cars.js), rebuilt when a run picks one
   let car = null, glow = null, glowHex = null;
-  let models = null, carId = "liftback";
-  function setPlayerCar(id) {
-    carId = id;
+  let models = null, carId = "liftback", carMods = [];
+  function setPlayerCar(id, mods = carMods) {
+    carId = id; carMods = mods;
     if (car) scene.remove(car);
     car = models?.[id] ? modelCar(id) : buildPlayerCar(id);
+    decorate(car, id, mods);
     const L = car.userData.len / 2;
     // lights: headlamps and tail lamps that glow (the models have their own), a beam on the road ahead
     // at night, and underglow (a mod)
@@ -357,7 +359,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
   }
   setPlayerCar("liftback");
   // the models arrive after the first frame; swap them in when they do
-  loadCarModels().then((m) => { models = m; setPlayerCar(carId); buildTrafficModels(); });
+  loadCarModels().then((m) => { models = m; setPlayerCar(carId); buildTrafficModels(); if (garage?.on) garage.key = null; });
 
   // beacons: a tall translucent column you can see over the buildings, and a ring on the road
   function beacon(hex) {
@@ -485,6 +487,74 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
 
   const camera = new THREE.PerspectiveCamera(66, 1, 0.3, 500);
   const cam = { x: 0, z: 0, yaw: 0, fov: 66, shake: 0, init: false, dist: 6.4 };
+  // --- the garage: your car on a turntable while you shop (user, 2026-10-04)
+  let garage = null;
+  function buildGarage() {
+    const gs = new THREE.Scene();
+    gs.background = new THREE.Color(0x14171d);
+    gs.fog = new THREE.Fog(0x14171d, 16, 34);
+    gs.add(new THREE.HemisphereLight(0xdfe8ff, 0x2a2622, 1.15));
+    const key = new THREE.DirectionalLight(0xfff0dc, 1.9); key.position.set(4, 8, 5); gs.add(key);
+    const rim = new THREE.DirectionalLight(0x9fc0ff, 1.0); rim.position.set(-5, 4, -6); gs.add(rim);
+    const L = (hex) => new THREE.MeshLambertMaterial({ color: hex, flatShading: true });
+    const B = (hex) => new THREE.MeshBasicMaterial({ color: hex });
+    const add = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); gs.add(o); return o; };
+    add(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), L(0x34373e), 0, 0, 0);
+    add(new THREE.CylinderGeometry(3.4, 3.4, 0.08, 40), L(0x26292f), 0, 0.04, 0);
+    add(new THREE.TorusGeometry(3.4, 0.05, 4, 48).rotateX(Math.PI / 2), B(0xffa31a), 0, 0.09, 0);
+    // the back of the workshop: wall, roller door, shelves, tyres, a tool chest, a neon sign
+    add(new THREE.BoxGeometry(26, 7, 0.3), L(0x2b2f37), 0, 3.5, -7);
+    for (let k = 0; k < 9; k++) add(new THREE.BoxGeometry(5, 0.32, 0.12), L(k % 2 ? 0x8b929c : 0x7b828c), -6.5, 0.3 + k * 0.36, -6.8);
+    add(new THREE.BoxGeometry(5.4, 0.25, 0.4), L(0x222222), -6.5, 3.6, -6.8);
+    for (const y of [1.2, 2.4]) add(new THREE.BoxGeometry(3.2, 0.08, 0.7), L(0x5a5f68), 5.5, y, -6.5);
+    for (let k = 0; k < 5; k++) add(new THREE.BoxGeometry(0.5, 0.45, 0.5), L([0xd94b3d, 0x3d7fd9, 0xe0b23a, 0x4fa35c, 0x8a9199][k]), 4.3 + k * 0.6, 1.47, -6.5);
+    for (let k = 0; k < 4; k++) add(new THREE.CylinderGeometry(0.42, 0.42, 0.26, 12), L(0x1b1c20), 2.2, 0.13 + k * 0.27, -5.8);
+    add(new THREE.BoxGeometry(1.3, 1.1, 0.6), L(0xc42a2a), 8.2, 0.55, -6.2);
+    const cv = document.createElement("canvas"); cv.width = 512; cv.height = 128;
+    const g = cv.getContext("2d");
+    g.fillStyle = "#14171d"; g.fillRect(0, 0, 512, 128);
+    g.font = "900 70px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.shadowColor = "#ff3bd0"; g.shadowBlur = 24; g.fillStyle = "#ffd0f4"; g.fillText("GIG GARAGE", 256, 66);
+    add(new THREE.PlaneGeometry(6, 1.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv) }), 1.5, 5.2, -6.83);
+    for (const x of [-4, 0, 4]) add(new THREE.BoxGeometry(2.4, 0.08, 0.3), B(0xf4f8ff), x, 6.6, -2);   // strip lights
+    const cam = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+    const turn = new THREE.Group(); gs.add(turn);
+    return { scene: gs, cam, turn, car: null, angle: 0.75, dragT: 0, on: false, key: null };
+  }
+  function showGarage(on, id, mods = [], preview = null) {
+    if (!garage) { if (!on) return; garage = buildGarage(); }
+    garage.on = on;
+    if (!on) return;
+    const key = `${id}|${mods.join(",")}|${preview}|${!!models}`;
+    if (key === garage.key) return;
+    garage.key = key;
+    if (garage.car) garage.turn.remove(garage.car);
+    const c = models?.[id] ? modelCar(id) : buildPlayerCar(id);
+    decorate(c, id, mods, preview);
+    if (mods.includes("underglow") || preview === "underglow") {
+      const glowP = new THREE.Mesh(new THREE.PlaneGeometry(c.userData.wid * 2.9, c.userData.len * 1.9).rotateX(-Math.PI / 2).translate(0, 0.1, 0),
+        new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xff2bd6, ...add }));
+      c.add(glowP);
+    }
+    garage.car = c; garage.turn.add(c);
+  }
+  function garageDrag(dx) { if (garage) { garage.angle += dx * 0.012; garage.dragT = 2.5; } }
+  function renderGarage(dt) {
+    const G = garage;
+    G.dragT = Math.max(0, G.dragT - dt);
+    if (G.dragT <= 0) G.angle += dt * 0.3;   // a slow turn unless you're spinning it yourself
+    G.turn.rotation.y = G.angle;
+    if (G.car) tickMods(G.car, dt);
+    const w = canvas.clientWidth, h = canvas.clientHeight, cam = G.cam;
+    // landscape: frame the car in the left part of the screen, beside the shop panel
+    const wide = w / h > 1.2, full = wide ? 1.62 : 1;
+    cam.aspect = (w * full) / h;
+    if (wide) cam.setViewOffset(w * full, h, w * (full - 1), 0, w, h); else cam.clearViewOffset();
+    cam.position.set(6.2, 2.9, 8.6); cam.lookAt(0, 0.7, 0);
+    cam.updateProjectionMatrix();
+    renderer.render(G.scene, cam);
+  }
+
   function resize() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     renderer.setSize(w, h, false);
@@ -604,6 +674,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     camera.fov = cam.fov;
     camera.updateProjectionMatrix();
     dayFrame(dt, t, pose.x, pose.z, Math.sin(pose.h) * pose.speed, Math.cos(pose.h) * pose.speed);
+    tickMods(car, dt);
+    if (garage?.on) { renderGarage(dt); return; }
     renderer.render(scene, camera);
   }
 
@@ -794,5 +866,5 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     poles.instanceMatrix.needsUpdate = true;
     if (heads) heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
   }
-  return { resize, frame, setRoute, colorRoute, setUnderglow, setPlayerCar, setOffers, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
+  return { resize, frame, setRoute, colorRoute, setUnderglow, setPlayerCar, setOffers, showGarage, garageDrag, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
 }

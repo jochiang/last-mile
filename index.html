@@ -98,6 +98,14 @@
   /* menu */
   #menu { position: fixed; inset: 0; background: rgba(16,21,28,.8); display: grid; place-items: center; overflow: auto; padding: 16px; }
   #menu.hidden { display: none; }
+  /* the garage: a panel on the right; the left shows your car on its turntable (drag to spin it) */
+  #menu.garage { background: linear-gradient(90deg, rgba(16,21,28,0) 35%, rgba(16,21,28,.5) 62%); place-items: stretch end; padding: 0; touch-action: none; }
+  #menu.garage .card { width: min(60vw, 620px); height: 100%; overflow: auto; background: rgba(16,21,28,.9); padding: 12px 14px; touch-action: pan-y; }
+  #menu.garage .shop { grid-template-columns: repeat(2, 1fr); }
+  #menu.garage .stats { gap: 8px; } #menu.garage .stats b { font-size: 16px; }
+  body.garage-on .hud, body.garage-on #map, body.garage-on #pause, body.garage-on #pedal, body.garage-on .hint, body.garage-on #lines, body.garage-on #knob { display: none !important; }
+  .mod { cursor: pointer; }
+  .mod.previewing { border-color: #ffd27a; background: rgba(255,210,122,.12); }
   .card { width: min(720px, 100%); }
   h1 { margin: 0; font-size: 34px; font-weight: 900; letter-spacing: .02em; }
   h1 small { font-size: 14px; font-weight: 600; opacity: .7; letter-spacing: 0; margin-left: 8px; }
