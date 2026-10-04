@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { X, NB, CURB, LINE, PITCH } from "./map.js";
+import { loadCarModels, playerFromModel, partsFromModel, gameMaterial } from "./models.js";
 
 const C = {
   sky: 0xbfe3ff, asphalt: 0x4b4e56, sidewalk: 0xb8b3a8, curb: 0xd8d4cb, dash: 0xf2d24b, white: 0xf4f4f4,
@@ -318,12 +319,15 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
 
   // the player's car: one of three models (cars.js), rebuilt when a run picks one
   let car = null, glow = null, glowHex = null;
+  let models = null, carId = "liftback";
   function setPlayerCar(id) {
+    carId = id;
     if (car) scene.remove(car);
-    car = buildPlayerCar(id);
+    car = models?.[id] ? modelCar(id) : buildPlayerCar(id);
     const L = car.userData.len / 2;
-    // lights: headlamps and tail lamps that glow, a beam on the road ahead at night, and underglow (a mod)
-    for (const x of [-0.62, 0.62]) {
+    // lights: headlamps and tail lamps that glow (the models have their own), a beam on the road ahead
+    // at night, and underglow (a mod)
+    if (!car.userData.model) for (const x of [-0.62, 0.62]) {
       const hl = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.15, 0.05), new THREE.MeshBasicMaterial({ color: 0xfff6d8 }));
       hl.position.set(x, car.userData.lampY, L + 0.02); car.userData.body.add(hl);
       const tl = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.14, 0.05), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
@@ -340,7 +344,20 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     car.add(glow);
     scene.add(car);
   }
+  // a player car from the Blender model, wrapped like the procedural one (body leans, wheels steer and spin)
+  function modelCar(id) {
+    const m = playerFromModel(models[id]);
+    const g = new THREE.Group();
+    g.add(m.group);
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(m.wid + 0.5, m.len + 0.5).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false }));
+    shadow.position.y = 0.06; g.add(shadow);
+    g.userData = { body: m.body, wheels: m.wheels, len: m.len, wid: m.wid, model: true,
+      camUp: id === "hauler" ? 1.0 : 0, camBack: id === "hauler" ? 1.2 : id === "roadster" ? -0.4 : 0 };
+    return g;
+  }
   setPlayerCar("liftback");
+  // the models arrive after the first frame; swap them in when they do
+  loadCarModels().then((m) => { models = m; setPlayerCar(carId); buildTrafficModels(); });
 
   // beacons: a tall translucent column you can see over the buildings, and a ring on the road
   function beacon(hex) {
@@ -607,7 +624,25 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
   inst("head", new THREE.BoxGeometry(0.38, 0.15, 0.06), new THREE.MeshBasicMaterial({ color: 0xfff3d0 }), 2);
   inst("tail", new THREE.BoxGeometry(0.38, 0.15, 0.06), new THREE.MeshBasicMaterial({ color: 0xffffff }), 2);
   const dummy = new THREE.Object3D(), part = new THREE.Matrix4(), cm = new THREE.Matrix4(), tcol = new THREE.Color();
+  // traffic from the models: one instanced mesh per (model, material); paint and tail lamps tinted per car
+  let tmodel = null;
+  function buildTrafficModels() {
+    if (!models?.sedan || !models?.van) return;
+    tmodel = {};
+    for (const kind of ["sedan", "van"]) {
+      tmodel[kind] = partsFromModel(models[kind]).map((p) => {
+        const mat = gameMaterial(p.src, { tint: true });
+        const m = new THREE.InstancedMesh(p.geometry, mat, MAXT);
+        m.count = 0; m.frustumCulled = false;
+        if (p.name === "paint" || p.name === "lamp_tail") m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXT * 3).fill(1), 3);
+        scene.add(m);
+        return { name: p.name, m };
+      });
+    }
+    for (const m of Object.values(tparts)) m.visible = false;
+  }
   function drawTraffic(cars, alpha) {
+    if (tmodel) return drawTrafficModels(cars, alpha);
     let nc = 0, nv = 0, nl = 0;
     for (const c of cars.slice(0, MAXT)) {
       const x = c.px + (c.x - c.px) * alpha, z = c.pz + (c.z - c.pz) * alpha;
@@ -631,6 +666,25 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     tparts.carBody.count = tparts.carCabin.count = nc; tparts.vanBody.count = nv; tparts.chassis.count = nc + nv;
     tparts.head.count = tparts.tail.count = nl;
     for (const m of Object.values(tparts)) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+  }
+
+  function drawTrafficModels(cars, alpha) {
+    const n = { sedan: 0, van: 0 };
+    for (const c of cars.slice(0, MAXT)) {
+      const kind = c.kind === "van" ? "van" : "sedan";
+      const x = c.px + (c.x - c.px) * alpha, z = c.pz + (c.z - c.pz) * alpha;
+      const h = c.ph + Math.atan2(Math.sin(c.h - c.ph), Math.cos(c.h - c.ph)) * alpha;
+      dummy.position.set(x, 0, z); dummy.rotation.set(0, h, 0); dummy.updateMatrix();
+      const i = n[kind]++, brake = c.mode !== "drive" || c.brake;
+      for (const p of tmodel[kind]) {
+        p.m.setMatrixAt(i, dummy.matrix);
+        if (p.name === "paint") p.m.setColorAt(i, tcol.setHex(c.mode === "wreck" ? 0x3a3a3a : c.color));
+        else if (p.name === "lamp_tail") p.m.setColorAt(i, tcol.setHex(brake ? 0xff2020 : 0x7a0c0c));
+      }
+    }
+    for (const kind of ["sedan", "van"]) for (const p of tmodel[kind]) {
+      p.m.count = n[kind]; p.m.instanceMatrix.needsUpdate = true; if (p.m.instanceColor) p.m.instanceColor.needsUpdate = true;
+    }
   }
 
   function setUnderglow(hex) { glowHex = hex; glow.visible = !!hex; if (hex) glow.material.color.setHex(hex); }
