@@ -50,7 +50,8 @@ function buildStatic(city, night) {
   }
   // the outer sidewalk in front of the edge buildings
   const E0 = city.inner.x0, E1 = city.inner.x1;
-  for (const [x0, z0, x1, z1] of [[E0, E0, E1, E0 + 3], [E0, E1 - 3, E1, E1], [E0, E0, E0 + 3, E1], [E1 - 3, E0, E1, E1]]) P.push(flat(x0, z0, x1, z1, 0.03, C.sidewalk));
+  const SW = LINE - CURB;
+  for (const [x0, z0, x1, z1] of [[E0, E0, E1, E0 + SW], [E0, E1 - SW, E1, E1], [E0, E0, E0 + SW, E1], [E1 - SW, E0, E1, E1]]) P.push(flat(x0, z0, x1, z1, 0.03, C.sidewalk));
   for (const l of city.lots) {
     P.push(flat(l.x0, l.z0, l.x1, l.z1, 0.045, C.lot));
     for (const car of city.parkedCars) P.push(flat(car.x0 - 0.35, car.z0 - 0.2, car.x0 - 0.2, car.z1 + 0.2, 0.05, C.white));
@@ -78,7 +79,7 @@ function buildStatic(city, night) {
     for (let s = LINE + 2; s < e.len - LINE - 2; s += 6) {
       P.push(colored(new THREE.BoxGeometry(0.18, 0.01, 3).rotateY(h).translate(e.ax + dx * (s + 1.5), 0.02, e.az + dz * (s + 1.5)), C.dash));
       // white lane lines either side: more stripes flicking past
-      for (const w of [-3.5, 3.5]) P.push(colored(new THREE.BoxGeometry(0.14, 0.01, 2).rotateY(h).translate(e.ax + dx * (s + 1) - dz * w, 0.02, e.az + dz * (s + 1) + dx * w), C.white));
+      for (const w of [-CURB / 2, CURB / 2]) P.push(colored(new THREE.BoxGeometry(0.14, 0.01, 2).rotateY(h).translate(e.ax + dx * (s + 1) - dz * w, 0.02, e.az + dz * (s + 1) + dx * w), C.white));
     }
     for (const [s, sgn] of [[LINE + 0.5, 1], [e.len - LINE - 0.5, -1]]) {
       // zebra stripes across the road just outside the intersection
@@ -500,6 +501,49 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     renderer.render(scene, camera);
   }
 
+  // --- traffic: instanced parts for every NPC car (bodies tinted per car), interpolated between ticks
+  const MAXT = 48;
+  const tparts = {};
+  const inst = (name, geo, mat, perCar = 1) => {
+    const m = new THREE.InstancedMesh(geo, mat, MAXT * perCar);
+    m.count = 0; m.frustumCulled = false;
+    if (mat.vertexColors === false) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXT * perCar * 3).fill(1), 3);
+    scene.add(m); tparts[name] = m; return m;
+  };
+  const lam = () => new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+  inst("carBody", new THREE.BoxGeometry(1.9, 0.62, 4.2).translate(0, 0.62, 0), lam());
+  inst("carCabin", new THREE.BoxGeometry(1.5, 0.5, 2.0).translate(0, 1.18, -0.3), new THREE.MeshLambertMaterial({ color: 0x1e2733, flatShading: true }));
+  inst("vanBody", new THREE.BoxGeometry(2.1, 1.85, 5.1).translate(0, 1.3, 0), lam());
+  inst("chassis", new THREE.BoxGeometry(1.95, 0.42, 3.4).translate(0, 0.25, 0), new THREE.MeshLambertMaterial({ color: 0x15161a }));
+  inst("head", new THREE.BoxGeometry(0.38, 0.15, 0.06), new THREE.MeshBasicMaterial({ color: 0xfff3d0 }), 2);
+  inst("tail", new THREE.BoxGeometry(0.38, 0.15, 0.06), new THREE.MeshBasicMaterial({ color: 0xffffff }), 2);
+  const dummy = new THREE.Object3D(), part = new THREE.Matrix4(), cm = new THREE.Matrix4(), tcol = new THREE.Color();
+  function drawTraffic(cars, alpha) {
+    let nc = 0, nv = 0, nl = 0;
+    for (const c of cars.slice(0, MAXT)) {
+      const x = c.px + (c.x - c.px) * alpha, z = c.pz + (c.z - c.pz) * alpha;
+      const h = c.ph + Math.atan2(Math.sin(c.h - c.ph), Math.cos(c.h - c.ph)) * alpha;
+      dummy.position.set(x, 0, z); dummy.rotation.set(0, h, 0); dummy.updateMatrix();
+      cm.copy(dummy.matrix);
+      const van = c.kind === "van", L = van ? 2.56 : 2.11, ly = van ? 0.8 : 0.66;
+      tcol.setHex(c.mode === "wreck" ? 0x3a3a3a : c.color);
+      if (van) { tparts.vanBody.setMatrixAt(nv, cm); tparts.vanBody.setColorAt(nv, tcol); nv++; }
+      else { tparts.carBody.setMatrixAt(nc, cm); tparts.carBody.setColorAt(nc, tcol); tparts.carCabin.setMatrixAt(nc, cm); nc++; }
+      tparts.chassis.setMatrixAt(nc + nv - 1, cm);
+      // lights: brake lights flare when they slow down
+      const brake = c.mode !== "drive" || c.brake;
+      for (const sx of [-0.62, 0.62]) {
+        part.makeTranslation(sx, ly, L); tparts.head.setMatrixAt(nl, part.premultiply(cm));
+        part.makeTranslation(sx, ly, -L); tparts.tail.setMatrixAt(nl, part.premultiply(cm));
+        tparts.tail.setColorAt(nl, tcol.setHex(brake ? 0xff2020 : 0x7a0c0c));
+        nl++;
+      }
+    }
+    tparts.carBody.count = tparts.carCabin.count = nc; tparts.vanBody.count = nv; tparts.chassis.count = nc + nv;
+    tparts.head.count = tparts.tail.count = nl;
+    for (const m of Object.values(tparts)) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+  }
+
   function setUnderglow(hex) { glow.visible = !!hex; if (hex) glow.material.color.setHex(hex); }
   // --- the day's conditions: barricades, speed cameras, the surge zone, rain
   let dayGroup = null, rain = null, blinkers = [], camFlash = [];
@@ -607,5 +651,5 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     poles.instanceMatrix.needsUpdate = true;
     if (heads) heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
   }
-  return { resize, frame, setRoute, colorRoute, setUnderglow, resetPoles, setDay, flashCamera, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
+  return { resize, frame, setRoute, colorRoute, setUnderglow, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
 }

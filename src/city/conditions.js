@@ -11,7 +11,7 @@ export const CONDITIONS = {
   rain: { name: "Rain", minDay: 3, weight: 1, desc: "−18% grip. People tip more in the rain: +15% tips." },
   roadworks: { name: "Road works", minDay: 4, weight: 1, desc: "A few streets are barricaded. The GPS goes round; you might know better." },
   cameras: { name: "Speed cameras", minDay: 5, weight: 1, desc: "A $6 fine for passing one over 60 km/h." },
-  rush: { name: "Rush hour", minDay: 6, weight: 1, desc: "Clocks 15% tighter, tips +25%." },
+  rush: { name: "Rush hour", minDay: 6, weight: 1, desc: "Clocks 15% tighter, tips +25%, and 40% more traffic." },
 };
 
 function rng(seed) {
@@ -42,9 +42,11 @@ export function dayPlan(city, seed, day) {
   }
   const plan = {
     day, conds, kinds,
-    pace: 13 + Math.min(2.4, 0.3 * (day - 1)),          // the clock's assumed speed: it tightens daily
+    pace: 12 + Math.min(2.4, 0.3 * (day - 1)),          // the clock's assumed speed (traffic slows everyone): it tightens daily
     maxDist: 520 + Math.min(220, 30 * (day - 1)),        // customers get further away
     closed: [], surge: null, cameras: [],
+    // traffic: the main difficulty dial (user, 2026-10-04). Cars kept around the player.
+    traffic: Math.round(Math.min(30, 5 + 2 * (day - 1)) * (conds.includes("rush") ? 1.4 : 1)),
   };
   const restEdges = new Set(city.restaurants.map((r) => r.edge));
   if (conds.includes("roadworks")) {

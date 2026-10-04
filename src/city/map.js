@@ -3,15 +3,16 @@
 // restaurants, customer addresses, and the dressing the renderer draws.
 //
 // Streets run along x = X(k) and z = X(k), k = 0..6. A block (row r, col c) spans
-// x in [X(c), X(c+1)], z in [X(r), X(r+1)]. From a street's centreline: road to 7 m (four lanes),
-// sidewalk to 10 m, then the block's buildings. Rows run north (-z) to south (+z).
+// x in [X(c), X(c+1)], z in [X(r), X(r+1)]. From a street's centreline: road to 8 m (four lanes),
+// sidewalk to 14 m, then the block's buildings. Rows run north (-z) to south (+z).
 //
 // The GPS only knows the streets. Alleys, the parking lot and the park are the shortcuts a player
 // learns.
 
-export const PITCH = 58, NB = 6, ORIGIN = -3 * PITCH;
-// streets widened 2026-10-03 (were 10 m curb to curb): room for a power-oversteer U-turn
-export const CURB = 7, LINE = 10, LANE = 3.5, POLE = 7.6;
+export const PITCH = 66, NB = 6, ORIGIN = -3 * PITCH;
+// streets widened 2026-10-03 (10 → 14 m, for power U-turns) and again 2026-10-04 for traffic:
+// four 4 m lanes, GTA-sized 6 m sidewalks (drivable). LANE: where stops are, the kerbside lane.
+export const CURB = 8, LINE = 14, LANE = 6, POLE = 8.6, LANE_W = 4;
 export const X = (k) => ORIGIN + k * PITCH;
 
 // B buildings, P park (neighbouring parks merge across the street), L parking lot,

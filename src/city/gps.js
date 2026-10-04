@@ -1,17 +1,43 @@
 // The GPS: shortest route by street from the car to a place on a street edge. It knows nothing
 // about alleys, the lot or the park; beating it with those is the skill.
 
-import { projT } from "./map.js";
+import { projT, LANE_W } from "./map.js";
+
+const LANE_OFF = LANE_W;   // the line sits between the two right-hand lanes
+
+/** Offset a polyline to the right of travel, mitring the corners. The last point (a kerbside stop)
+ *  stays put; a U-turn becomes a hairpin round the node. */
+function keepRight(pts, d) {
+  const out = [];
+  const seg = (i) => { const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az) || 1; return [(bx - ax) / L, (bz - az) / L, L]; };
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x, z] = pts[i];
+    const [dx, dz, L] = seg(i);
+    if (L < 0.5) continue;
+    if (i === 0) { out.push([x - dz * d, z + dx * d]); continue; }
+    const [px, pz] = seg(i - 1);
+    const dot = px * dx + pz * dz;
+    if (dot < -0.7) {   // turning right round: two points either side of the node
+      out.push([x - pz * d, z + px * d], [x - dz * d, z + dx * d]);
+      continue;
+    }
+    // mitre: the offset lines of the two segments meet here
+    const mx = -pz - dz, mz = px + dx, ml = Math.hypot(mx, mz) || 1, k = d / Math.max(0.35, (mx / ml) * -pz + (mz / ml) * px);
+    out.push([x + (mx / ml) * k, z + (mz / ml) * k]);
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
 
 /** The street edge nearest (x, z), and where along it. With a heading h, streets running the way
  *  you're going win ties: in the middle of an intersection you're as close to the crossing street
  *  as to your own, and picking it made the line snap sideways (user, 2026-10-03). */
-export function nearestEdge(city, x, z, h = null) {
+export function nearestEdge(city, x, z, h = null, prefer = null) {
   let best = null, bs = Infinity;
   for (const e of city.edges) {
     const t = projT(e, x, z), px = e.ax + ((e.bx - e.ax) * t) / e.len, pz = e.az + ((e.bz - e.az) * t) / e.len;
     const d = Math.hypot(x - px, z - pz);
-    let score = d + (e.closed ? 25 : 0);   // a barricaded street only if you're really on it
+    let score = d + (e.closed ? 25 : 0) - (prefer && prefer.has(e) ? 9 : 0);   // closed: only if really on it; prefer: stick with the current route
     if (h !== null) {
       const cos = Math.abs(((e.bx - e.ax) * Math.sin(h) + (e.bz - e.az) * Math.cos(h)) / e.len);
       score += (1 - cos) * 12;
@@ -27,9 +53,11 @@ const uturnCost = (speed) => 90 + speed * 6;
 
 /** Route from a car at (x, z) heading h, moving at speed (m/s), to a place {edge, t, x, z}.
  *  Returns { points: [[x, z]...], length }. */
-export function route(city, x, z, h, dest, speed = 0) {
+export function route(city, x, z, h, dest, speed = 0, last = null) {
   const UTURN = uturnCost(speed);
-  const s = nearestEdge(city, x, z, h), e = s.e;
+  // stick with the street the last route had us on: halfway round a corner, the street we're leaving
+  // can be nearer than the one we're turning into, and re-routing from it sends you round the block
+  const s = nearestEdge(city, x, z, h, last?.edges), e = s.e;
   // which way along the edge is the car facing? (+1 = toward b)
   const fx = Math.sin(h), fz = Math.cos(h), along = (e.bx - e.ax) * fx + (e.bz - e.az) * fz >= 0 ? 1 : -1;
   const de = dest.edge;
@@ -58,10 +86,15 @@ export function route(city, x, z, h, dest, speed = 0) {
   const path = [];
   for (let n = end; n >= 0; n = prev[n]) path.push(n);
   path.reverse();
-  const points = [[x, z], [s.px, s.pz]];
-  for (const n of path) points.push([city.nodes[n].x, city.nodes[n].z]);
-  points.push([dest.x, dest.z]);
-  return { points, length: Math.min(viaA, viaB) + s.d };
+  const mid = [[s.px, s.pz]];
+  for (const n of path) mid.push([city.nodes[n].x, city.nodes[n].z]);
+  mid.push([dest.x, dest.z]);
+  // drive on the right: the line runs down the right-hand lanes, not the centreline (traffic,
+  // 2026-10-04: following a centreline route put you nose to nose with oncoming cars)
+  const points = [[x, z], ...keepRight(mid, LANE_OFF)];
+  const edges = new Set([e, de]);
+  for (let i = 0; i + 1 < path.length; i++) { const q = city.nodes[path[i]].adj.find((a) => a.n === path[i + 1]); if (q) edges.add(q.e); }
+  return { points, length: Math.min(viaA, viaB) + s.d, edges };
 }
 
 /** Plain street distance between two places (for order timers and pay). */
@@ -93,8 +126,8 @@ export function nextTurn(city, rt) {
   return { dir: "arrive", dist: d + Math.hypot(bx - ax, bz - az), onto: "" };
 }
 
-/** Target speed for a turn of this many radians (a 90 degree street corner ~ 47 km/h on the wide streets). */
-const cornerSpeed = (ang) => 5 + 8 * Math.pow(Math.max(0, Math.PI - ang) / (Math.PI / 2), 1.3);
+/** Target speed for a turn of this many radians. */
+const cornerSpeed = (ang) => 5 + 5.5 * Math.pow(Math.max(0, Math.PI - ang) / (Math.PI / 2), 1.3);   // 90 deg ~ 38 km/h
 export const STOP_SPEED = 2.5, PLAN_DECEL = 9;   // the stop at the end; the braking rate the plan assumes (m/s^2)
 
 /** Speed limits along a route: [{ s, v }] at each turn and at the stop, s = metres from points[0]. */

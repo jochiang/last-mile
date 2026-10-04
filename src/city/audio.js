@@ -101,6 +101,7 @@ export function createAudio() {
     slosh() { burst(0.35, { type: "bandpass", freq: 500, sweep: 1400, q: 2, gain: 0.3 }); },
     turn(pan) { tone(880, 0.09, { gain: 0.272, pan }); tone(1175, 0.14, { gain: 0.272, pan, at: 0.08 }); },
     shutter() { burst(0.04, { type: "highpass", freq: 4000, gain: 0.5 }); burst(0.06, { type: "bandpass", freq: 1500, q: 3, gain: 0.4, at: 0.07 }); tone(330, 0.35, { type: "square", gain: 0.12, at: 0.15 }); },
+    horn(pan = 0, vol = 1) { for (const f of [370, 466]) tone(f, 0.38, { type: "sawtooth", gain: 0.07 * vol, pan, attack: 0.02 }); },
     beep() { tone(1050, 0.22, { type: "square", gain: 0.05, attack: 0.01 }); },
     reset() { tone(500, 0.2, { glide: 250, type: "triangle", gain: 0.15 }); },
     buy() { SFX.kaching(); },

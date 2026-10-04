@@ -6,6 +6,7 @@ import { makeShift, stepShift, rating, avgRating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
 import { createAudio } from "./audio.js";
 import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
+import { createTraffic } from "./traffic.js";
 import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON } from "./run.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
 import { DT } from "../car.js";
@@ -19,6 +20,7 @@ if (!settings.pedalMode) settings.pedalMode = "float";
 const input = createInput($("zone"), { drift: $("drift"), brake: $("brake"), pedal: $("pedal"), pedzone: $("pedzone") }, settings);
 const audio = createAudio();
 if (settings.volume === undefined) settings.volume = 0.8;
+const traffic = createTraffic(city, 7);
 const view = createCityRenderer($("c"), city, { night: settings.night !== false });
 
 // the run in progress (saved between sessions) and the best run so far
@@ -45,6 +47,7 @@ function newShift() {
   view.setUnderglow(fx.underglow);
   view.resetPoles();
   view.setDay(plan, barriers(plan));
+  traffic.reset(car, plan.traffic);
   audio.setRain(plan.conds.includes("rain"));
   $("conds").textContent = plan.conds.map((c) => CONDITIONS[c].name.toUpperCase()).join(" · ");
   rt = null; prev = snap(car);
@@ -57,7 +60,15 @@ function tick() {
   prev = snap(car);
   inp = input.read(DT);
   stepCityCar(car, inp, city, carP);
+  traffic.step(car, carP, shift.plan.traffic);   // after the car moves: impacts change its velocity
   for (const e of car.events) events.push(e);
+  for (const e of traffic.events) {
+    // horns and other people's crashes, panned by where they are relative to the car
+    const dx = e.x - car.x, dz = e.z - car.z, d = Math.hypot(dx, dz);
+    const pan = Math.max(-1, Math.min(1, (dx * -Math.cos(car.h) + dz * Math.sin(car.h)) / Math.max(8, d) * 1.4));
+    if (e.type === "honk" && d < 60) audio.sfx("horn", pan, Math.max(0.2, 1 - d / 60));
+    if (e.type === "crash" && !e.player && d < 70) audio.sfx("thump", e.speed * Math.max(0.15, 1 - d / 70));
+  }
   stepShift(shift, city, car);
   for (const e of shift.events) onShiftEvent(e);
   // the GPS re-routes a few times a second
@@ -66,7 +77,7 @@ function tick() {
     rtT = 0;
     // route along the way the car is actually travelling (a slide points the nose elsewhere)
     const sp = Math.hypot(car.vx, car.vz), dirH = sp > 3 ? Math.atan2(car.vx, car.vz) : car.h;
-    rt = route(city, car.x, car.z, dirH, o.phase === "pickup" ? o.rest : o.cust, Math.max(0, car.u));
+    rt = route(city, car.x, car.z, dirH, o.phase === "pickup" ? o.rest : o.cust, Math.max(0, car.u), rt);
     rt.plan = speedPlan(rt);
     view.setRoute(rt.points, rt.plan);
   }
@@ -206,6 +217,8 @@ function drawMap() {
   mctx.drawImage(base, 0, 0);
   // today: the surge zone, barricaded streets, cameras
   const plan = shift.plan;
+  mctx.fillStyle = "#c9ced6";
+  for (const c of traffic.cars) { mctx.beginPath(); mctx.arc(bx(c.x), bz(c.z), 3.2, 0, 7); mctx.fill(); }
   if (plan.surge) { mctx.fillStyle = "rgba(255,59,208,.28)"; mctx.fillRect(bx(plan.surge.x0), bz(plan.surge.z0), (plan.surge.x1 - plan.surge.x0) * mscale, (plan.surge.z1 - plan.surge.z0) * mscale); }
   mctx.strokeStyle = "#ff4a3a"; mctx.lineWidth = 7;
   for (const e of plan.closed || []) { mctx.beginPath(); mctx.moveTo(bx(e.ax + (e.bx - e.ax) * 0.2), bz(e.az + (e.bz - e.az) * 0.2)); mctx.lineTo(bx(e.ax + (e.bx - e.ax) * 0.8), bz(e.az + (e.bz - e.az) * 0.8)); mctx.stroke(); }
@@ -287,6 +300,7 @@ function loop(now) {
   }
   audio.update({ running, speed: pose.speed, u: car.u, throttle: inp.throttle || 0, brake: inp.brake || 0, slipF: car.slipF, slipR: car.slipR, off: car.off, reverse: car.reverse, cond: car.cond }, dt);
   if (running && o) { audio.clock(o.left); if (o.kind === "drink") audio.spill(o.spill); }
+  view.drawTraffic(traffic.cars, running ? a : 1);
   view.frame(pose, dt, events, {
     route: running && rt,
     pickup: o && o.phase === "pickup" ? { x: o.rest.x, z: o.rest.z, inZone: o.inZone } : null,
@@ -453,4 +467,4 @@ newShift();
 show("title");
 requestAnimationFrame(loop);
 
-window.__lm = { get car() { return car; }, get shift() { return shift; }, city, input, settings, start, info: () => view.info(), audio, view };
+window.__lm = { get car() { return car; }, get shift() { return shift; }, city, input, settings, start, info: () => view.info(), audio, view, traffic };
