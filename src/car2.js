@@ -36,6 +36,8 @@ export const P = {
   loadLag: 0.1,                               // seconds for weight to move between axles
   loadSens: 0.4,                              // grip per kg falls as load rises (real tyres): tempers weight transfer
   sub: 4,                                     // substeps per tick (tyres are stiff)
+  fwd: false,                                 // front-wheel drive
+  ax: 1.3, r: 1.05,                           // collision shape: two circles this far from the middle, this big
 };
 const HALF_W = 1.0;
 
@@ -83,16 +85,17 @@ export function dynamics(c, inp, p = P) {
     const drive = thr * Math.min(p.fMax, p.power / Math.max(c.u, 4)) - rev * p.revForce * clamp((p.revMax + c.u) / 3, 0, 1);
     const brake = brk * p.brakeMax * W;
     const rearShare = (p.brakeRear * Nr) / (Nf + Nr);
-    let fxF = -dir * brake * (1 - rearShare);
-    let fxR = drive - dir * brake * rearShare;
+    // rear-wheel drive by default; front-wheel drive (p.fwd) pulls through the steering wheels instead
+    let fxF = -dir * brake * (1 - rearShare) + (p.fwd ? drive : 0);
+    let fxR = (p.fwd ? 0 : drive) - dir * brake * rearShare;
     // friction circle: longitudinal force first, side grip gets what's left
     const N0f = (W * p.b) / L, N0r = (W * p.a) / L;
     const capF = mu * Nf * Math.max(0.5, 1 - p.loadSens * (Nf / N0f - 1));
     const capR = mu * p.rearGrip * Nr * Math.max(0.5, 1 - p.loadSens * (Nr / N0r - 1));
     // ABS: the brakes back off before an axle locks, so the front keeps steering
     if (brake > 0) {
-      if (Math.abs(fxF) > p.abs * capF) fxF = Math.sign(fxF) * p.abs * capF;
-      if (drive === 0 && Math.abs(fxR) > p.abs * capR) fxR = Math.sign(fxR) * p.abs * capR;
+      if ((!p.fwd || drive === 0) && Math.abs(fxF) > p.abs * capF) fxF = Math.sign(fxF) * p.abs * capF;
+      if ((p.fwd || drive === 0) && Math.abs(fxR) > p.abs * capR) fxR = Math.sign(fxR) * p.abs * capR;
     }
     const kF = Math.abs(fxF) / capF, kR = Math.abs(fxR) / capR;
     if (kF > 1) fxF /= kF;

@@ -5,7 +5,6 @@ import { dynamics, wallHit, P } from "../car2.js";
 import { DT } from "../car.js";
 import { nearestEdge } from "./gps.js";
 
-const CR = 1.05, AX = 1.3;   // the car's circles: radius, and distance from the middle to each
 
 export function makeCityCar(city) {
   const s = city.start;
@@ -34,7 +33,7 @@ export function stepCityCar(c, inp, city, p = P) {
   c.wallT = Math.max(0, c.wallT - DT);
 
   // collisions: push each circle out of whatever it overlaps
-  const fx = Math.sin(c.h), fz = Math.cos(c.h);
+  const fx = Math.sin(c.h), fz = Math.cos(c.h), CR = p.r, AX = p.ax;   // the car's two circles (car2.js P)
   for (const k of [1, -1]) {
     for (let pass = 0; pass < 2; pass++) {
       const cx = c.x + fx * AX * k, cz = c.z + fz * AX * k;

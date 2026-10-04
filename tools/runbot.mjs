@@ -4,7 +4,7 @@
 import { buildCity } from "../src/city/map.js";
 import { makeCityCar } from "../src/city/world.js";
 import { makeShift, rating } from "../src/city/shift.js";
-import { makeRun, effects, settleShift, repairCost, repair, buy, modById, ECON } from "../src/city/run.js";
+import { makeRun, effects, settleShift, repairCost, repair, buy, modById, billFor } from "../src/city/run.js";
 import { driveShift } from "./driver.mjs";
 import { dayPlan, applyPlan } from "../src/city/conditions.js";
 import { createTraffic } from "../src/city/traffic.js";
@@ -17,9 +17,10 @@ const city = buildCity();
 const PRIORITY = ["dice", "freshener", "cups", "underglow", "spinners", "bag", "mints", "dashcam", "bullbar", "coilovers", "tyres", "brakes", "ecu", "stripes", "light"];
 
 const days = [];
+const carId = args.includes("--car") ? args[args.indexOf("--car") + 1] : "liftback";
 const noTraffic = args.includes("--no-traffic");
 for (let n = 0; n < runs; n++) {
-  const run = makeRun(1000 + n * 37);
+  const run = makeRun(1000 + n * 37, carId);
   while (!run.over && run.day <= 30) {
     const { fx, p } = effects(run);
     const plan = dayPlan(city, run.seed, run.day);
@@ -37,7 +38,7 @@ for (let n = 0; n < runs; n++) {
     // garage: repair to 85% if it's cheap enough, then buy by priority
     if (run.cond < 0.85 && repairCost(run, 0.85) < run.cash * 0.6) repair(run, 0.85);
     for (const id of PRIORITY) if (run.offers.includes(id) && modById[id].price <= run.cash) buy(run, id);
-    if (why) console.log(`    garage: car ${(run.cond * 100).toFixed(0)}%, mods [${run.mods.join(", ")}], cash $${run.cash.toFixed(0)}, next bill $${ECON.bill(run.day)}`);
+    if (why) console.log(`    garage: car ${(run.cond * 100).toFixed(0)}%, mods [${run.mods.join(", ")}], cash $${run.cash.toFixed(0)}, next bill $${billFor(run, run.day)}`);
   }
   days.push(run.day);
   console.log(`run ${n + 1}: ${run.over || "cap"} on day ${run.day}, earned $${run.earned.toFixed(0)}, mods ${run.mods.length}`);

@@ -7,7 +7,8 @@ import { createCityRenderer } from "./render.js";
 import { createAudio } from "./audio.js";
 import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
 import { createTraffic } from "./traffic.js";
-import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON } from "./run.js";
+import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf } from "./run.js";
+import { CARS, CAR_ORDER } from "./cars.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
 import { DT } from "../car.js";
 
@@ -44,6 +45,8 @@ function newShift() {
   carP = p;
   if (run) { car.cond = run.cond; car.dmgMul = fx.dmgMul; car.bullbar = fx.bullbar; }
   shift = makeShift(city, run ? run.seed * 101 + run.day : 1, { ratings: run ? run.ratings : undefined, fx, plan });
+  view.setPlayerCar(run ? run.car || "liftback" : "liftback");
+  audio.setPitch(carOf(run || {}).audio.pitch);
   view.setUnderglow(fx.underglow);
   view.resetPoles();
   view.setDay(plan, barriers(plan));
@@ -108,8 +111,8 @@ const fmt = (t) => `${t < 0 ? "-" : ""}${Math.floor(Math.abs(t) / 60)}:${String(
 function hud() {
   const o = shift.order;
   $("clock").textContent = fmt(Math.max(0, SHIFT.length - shift.t));
-  $("money").textContent = run ? `$${shift.money.toFixed(2)} of $${ECON.bill(run.day)} bill · day ${run.day}` : `$${shift.money.toFixed(2)}`;
-  $("money").style.color = run && run.cash + shift.money < ECON.bill(run.day) ? "#ffb0a0" : "";
+  $("money").textContent = run ? `$${shift.money.toFixed(2)} of $${billFor(run, run.day)} bill · day ${run.day}` : `$${shift.money.toFixed(2)}`;
+  $("money").style.color = run && run.cash + shift.money < billFor(run, run.day) ? "#ffb0a0" : "";
   $("rating").textContent = `★ ${rating(shift).toFixed(2)}${run && run.probation ? " · PROBATION" : ""}`;
   $("rating").style.color = rating(shift) < 4.3 ? "#ff8a7a" : "#ffe07a";
   if (o) {
@@ -349,10 +352,10 @@ function garageScreen(last) {
     return `<div class="mod"><span class="tag ${m.kind}">${m.kind === "perf" ? "PERFORMANCE" : m.kind === "cargo" ? "CARGO" : "STYLE"}</span><b>${m.name}</b><span class="d">${m.desc}</span>
       <button data-act="buy" data-id="${id}" ${m.price > run.cash ? "disabled" : ""}>${money(m.price)}</button></div>`;
   }).join("") || `<div class="muted">Sold out.</div>`;
-  return `<h2 class="big">DAY ${run.day} · GARAGE</h2>
+  return `<h2 class="big">DAY ${run.day} · GARAGE <small style="font-size:14px;opacity:.7">${carOf(run).name}</small></h2>
     ${last ? `<div class="muted">Yesterday: ${last.jobs} deliveries, earned ${money(last.earned)}, car payment ${money(last.bill)}.</div>` : ""}
     ${run.probation ? `<div style="color:#ffb0a0;font-size:13px;margin:4px 0">⚠ PROBATION: your rating finished under 4.0. Finish today under it again and you're deactivated.</div>` : ""}
-    <div class="stats"><div><b>${money(run.cash)}</b><span>CASH</span></div><div><b>${money(ECON.bill(run.day))}</b><span>PAYMENT AFTER TODAY</span></div><div><b>★ ${r.toFixed(2)}</b><span>RATING</span></div></div>
+    <div class="stats"><div><b>${money(run.cash)}</b><span>CASH</span></div><div><b>${money(billFor(run, run.day))}</b><span>PAYMENT AFTER TODAY</span></div><div><b>★ ${r.toFixed(2)}</b><span>RATING</span></div></div>
     ${forecastHtml()}
     <div class="repair"><b>Car ${Math.round(run.cond * 100)}%</b> ${condBar(run.cond)}
       ${run.cond < 0.995 ? `<button class="sm" data-act="repair" data-to="${Math.min(1, run.cond + 0.25)}" ${fixTo(Math.min(1, run.cond + 0.25)) > run.cash ? "disabled" : ""}>Patch +25% ${money(fixTo(Math.min(1, run.cond + 0.25)))}</button>
@@ -378,10 +381,26 @@ function overScreen() {
 let curScreen = "title", lastDay = null;
 function show(which) {
   curScreen = which;
-  $("screen").innerHTML = which === "garage" ? garageScreen(lastDay) : which === "over" ? overScreen() : which === "pause" ? pauseScreen() : titleScreen();
+  $("screen").innerHTML = which === "garage" ? garageScreen(lastDay) : which === "over" ? overScreen() : which === "pause" ? pauseScreen() : which === "cars" ? carsScreen() : titleScreen();
   renderSettings();
   $("menu").classList.remove("hidden");
 }
+// pick a car: it sets the run's physics, toughness and payment curve (cars.js)
+function carsScreen() {
+  const pips = (n) => `<span style="letter-spacing:2px;color:#ffd27a">${"●".repeat(n)}<span style="opacity:.25">${"●".repeat(5 - n)}</span></span>`;
+  const cards = CAR_ORDER.map((id) => {
+    const c = CARS[id];
+    return `<div class="mod"><span class="tag ${id === "hauler" ? "cargo" : id === "roadster" ? "silly" : "perf"}">${c.kind.toUpperCase()}</span><b>${c.name}</b>
+      <span class="d">${c.blurb}</span>
+      <span class="d">Speed ${pips(c.stats.speed)}<br>Grip ${pips(c.stats.grip)}<br>Toughness ${pips(c.stats.toughness)}<br>Cargo ${pips(c.stats.cargo)}</span>
+      <span class="d">Payments: $${c.bill(1)} → $${c.bill(5)} → $${c.bill(10)} (days 1, 5, 10)</span>
+      <button data-act="pick" data-car="${id}">DRIVE THIS</button></div>`;
+  }).join("");
+  return `<h2 class="big">PICK YOUR CAR</h2><div class="muted">It's yours for the whole run, payments and all.</div>
+    <div class="shop" style="grid-template-columns:repeat(3,1fr)">${cards}</div>
+    <div class="row"><button class="sm" data-act="title">Back</button></div>`;
+}
+
 function pauseScreen() {
   return `<h2 class="big">PAUSED</h2><div class="muted">Day ${run ? run.day : "–"}. The clock's stopped; the customer's patience isn't (it is, actually).</div>
     <div class="row"><button class="go" data-act="resume">RESUME</button> <button class="sm" data-act="abandon">Abandon shift</button></div>`;
@@ -405,7 +424,8 @@ $("screen").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
   const act = b.dataset.act;
-  if (act === "newrun") { run = makeRun(); rollOffers(run); persist(); newShift(); start(); return; }
+  if (act === "newrun") { show("cars"); return; }
+  if (act === "pick") { run = makeRun(undefined, b.dataset.car); rollOffers(run); persist(); newShift(); start(); return; }
   if (act === "continue") { lastDay = run.log[run.log.length - 1] || null; show(run.log.length ? "garage" : "title"); if (!run.log.length) { newShift(); start(); } return; }
   if (act === "start") { newShift(); start(); return; }
   if (act === "resume") { start(); return; }

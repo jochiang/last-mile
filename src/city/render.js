@@ -4,7 +4,6 @@
 
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { buildCar } from "../render.js";
 import { X, NB, CURB, LINE, PITCH } from "./map.js";
 
 const C = {
@@ -204,6 +203,64 @@ function chevronTexture() {
   return t;
 }
 
+// --- the three player cars, low-poly, facing +z. userData: body (leans), wheels (steer/spin), the size.
+function buildPlayerCar(id) {
+  const g = new THREE.Group(), body = new THREE.Group();
+  g.add(body);
+  const lam = (hex) => new THREE.MeshLambertMaterial({ color: hex, flatShading: true });
+  const add = (w, h, d, hex, x, y, z, rx = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(hex)); m.position.set(x, y, z); m.rotation.x = rx; body.add(m); return m; };
+  const BLACK = 0x17181c, GLASS = 0x1e2a38;
+  let len, wid, wr, wz, lampY, bag;
+  if (id === "hauler") {
+    len = 4.9; wid = 2.0; wr = 0.42; wz = 1.65; lampY = 0.85;
+    const SILVER = 0xb9c3cc;
+    add(2.0, 1.45, 4.3, SILVER, 0, 1.15, -0.3);            // the box
+    add(2.0, 0.65, 0.75, SILVER, 0, 0.72, 2.07);            // a short nose
+    add(2.0, 0.5, 0.9, GLASS, 0, 1.25, 1.6, -0.55);         // the steep windscreen
+    add(2.03, 0.55, 3.5, GLASS, 0, 1.55, -0.55);            // the window band
+    add(2.04, 0.05, 1.2, BLACK, 0, 1.0, 0.2);               // the sliding door's runner
+    add(2.04, 0.25, 4.6, 0x30343a, 0, 0.45, -0.1);          // bumpers and cladding
+    for (const x of [-0.75, 0.75]) add(0.08, 0.08, 3.2, BLACK, x, 1.93, -0.4);   // roof rails
+    bag = [0, 2.2, -0.6];
+  } else if (id === "roadster") {
+    len = 3.9; wid = 1.72; wr = 0.36; wz = 1.2; lampY = 0.62;
+    const RED = 0xd8262f;
+    add(1.72, 0.48, 3.9, RED, 0, 0.55, 0);                  // the body
+    add(1.5, 0.25, 1.3, BLACK, 0, 0.75, -0.35);             // the cockpit, open
+    add(1.5, 0.42, 0.06, GLASS, 0, 1.0, 0.45, -0.45);       // the windscreen
+    for (const x of [-0.4, 0.4]) add(0.08, 0.35, 0.08, BLACK, x, 0.98, -0.95);   // roll hoops
+    // pop-up headlights: up (it's always night)
+    for (const x of [-0.55, 0.55]) { add(0.42, 0.16, 0.34, RED, x, 0.88, 1.35); add(0.38, 0.13, 0.03, 0xfff6d8, x, 0.88, 1.53); }
+    add(1.74, 0.16, 0.25, BLACK, 0, 0.36, 1.9);             // the grin
+    bag = [0.38, 0.95, -0.35];                              // no roof: it rides in the passenger seat
+  } else {
+    // the liftback: white with a black glasshouse, roof and hatch
+    len = 4.3; wid = 1.9; wr = 0.38; wz = 1.35; lampY = 0.66;
+    const WHITE = 0xf1f1ee;
+    add(1.9, 0.62, 4.3, WHITE, 0, 0.62, 0);                 // the body
+    add(1.62, 0.5, 1.5, BLACK, 0, 1.17, 0.15);              // the glasshouse and roof
+    add(1.62, 0.08, 1.75, BLACK, 0, 1.11, -1.3, -0.3);      // the hatch, sloping to the tail
+    add(1.62, 0.4, 0.06, BLACK, 0, 1.1, 1.0, -0.6);         // the windscreen
+    add(1.94, 0.22, 0.3, BLACK, 0, 0.38, 2.05);             // bumpers
+    add(1.94, 0.22, 0.3, BLACK, 0, 0.38, -2.05);
+    add(0.5, 0.02, 1.4, BLACK, 0, 0.94, 1.35);              // a bonnet stripe
+    bag = [0, 1.8, -0.1];
+  }
+  const box = new THREE.Mesh(new THREE.BoxGeometry(id === "roadster" ? 0.7 : 1.1, id === "roadster" ? 0.55 : 0.75, id === "roadster" ? 0.7 : 1.0), lam(0xff7a1a));
+  box.position.set(...bag); body.add(box);
+  const wheels = [];
+  for (const [x, z] of [[-wid / 2, wz], [wid / 2, wz], [-wid / 2, -wz], [wid / 2, -wz]]) {
+    const pivot = new THREE.Group(); pivot.position.set(x, wr, z); g.add(pivot);
+    pivot.add(new THREE.Mesh(new THREE.CylinderGeometry(wr, wr, 0.3, 8).rotateZ(Math.PI / 2), lam(0x1c1d22)));
+    wheels.push(pivot);
+  }
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(wid + 0.5, len + 0.5).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false }));
+  shadow.position.y = 0.06; g.add(shadow);
+  // the camera sits higher and further back behind the tall van, so the road ahead stays visible
+  g.userData = { body, wheels, len, wid, lampY, camUp: id === "hauler" ? 1.0 : 0, camBack: id === "hauler" ? 1.2 : id === "roadster" ? -0.4 : 0 };
+  return g;
+}
+
 export function createCityRenderer(canvas, city, { night = true } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -259,28 +316,31 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
   }
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
 
-  // the car, with a delivery box on the roof
-  const car = buildCar(0x2fa6ff);
-  const bag = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.75, 1.0), new THREE.MeshLambertMaterial({ color: 0xff7a1a, flatShading: true }));
-  bag.position.set(0, 1.68, -0.4);
-  car.userData.body.add(bag);
-  // lights: headlamps and tail lamps that glow, a beam on the road ahead at night, and underglow (a mod)
-  for (const x of [-0.65, 0.65]) {
-    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.05), new THREE.MeshBasicMaterial({ color: 0xfff6d8 }));
-    hl.position.set(x, 0.65, 2.11); car.userData.body.add(hl);
-    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.05), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
-    tl.position.set(x, 0.7, -2.11); car.userData.body.add(tl);
+  // the player's car: one of three models (cars.js), rebuilt when a run picks one
+  let car = null, glow = null, glowHex = null;
+  function setPlayerCar(id) {
+    if (car) scene.remove(car);
+    car = buildPlayerCar(id);
+    const L = car.userData.len / 2;
+    // lights: headlamps and tail lamps that glow, a beam on the road ahead at night, and underglow (a mod)
+    for (const x of [-0.62, 0.62]) {
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.15, 0.05), new THREE.MeshBasicMaterial({ color: 0xfff6d8 }));
+      hl.position.set(x, car.userData.lampY, L + 0.02); car.userData.body.add(hl);
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.14, 0.05), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
+      tl.position.set(x, car.userData.lampY + 0.05, -L - 0.02); car.userData.body.add(tl);
+    }
+    if (night) {
+      const beam = new THREE.Mesh(new THREE.PlaneGeometry(9, 22).rotateX(-Math.PI / 2).translate(0, 0.1, 10.5 + L),
+        new THREE.MeshBasicMaterial({ map: glowTexture(true), color: 0x8a8060, ...add }));
+      car.add(beam);
+    }
+    glow = new THREE.Mesh(new THREE.PlaneGeometry(car.userData.wid * 2.9, car.userData.len * 1.9).rotateX(-Math.PI / 2).translate(0, 0.11, 0),
+      new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xff2bd6, ...add }));
+    glow.visible = !!glowHex; if (glowHex) glow.material.color.setHex(glowHex);
+    car.add(glow);
+    scene.add(car);
   }
-  if (night) {
-    const beam = new THREE.Mesh(new THREE.PlaneGeometry(9, 22).rotateX(-Math.PI / 2).translate(0, 0.1, 12.5),
-      new THREE.MeshBasicMaterial({ map: glowTexture(true), color: 0x8a8060, ...add }));
-    car.add(beam);
-  }
-  const glow = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 8).rotateX(-Math.PI / 2).translate(0, 0.11, 0),
-    new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xff2bd6, ...add }));
-  glow.visible = false;
-  car.add(glow);
-  scene.add(car);
+  setPlayerCar("liftback");
 
   // beacons: a tall translucent column you can see over the buildings, and a ring on the road
   function beacon(hex) {
@@ -479,7 +539,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     if (!cam.init) { cam.yaw = pose.h; cam.init = true; }
     let dy = pose.h - cam.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     cam.yaw += dy * Math.min(1, dt * (pose.reverse ? 2 : 6));
-    const want = 6.8 + pose.speed * 0.035;
+    const want = 6.8 + (car.userData.camBack || 0) + pose.speed * 0.035;
     let tx = pose.x - Math.sin(cam.yaw) * want, tz = pose.z - Math.cos(cam.yaw) * want;
     let k = 1;
     for (let s = 1; s >= 0.25; s -= 0.125) {
@@ -493,7 +553,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     // a little road buzz that grows with speed
     const buzz = Math.max(0, pose.speed - 18) * 0.0018, sh = cam.shake + buzz;
     // high enough to see the road (and the GPS line) over the car, looking well up the street
-    camera.position.set(tx + (Math.random() - 0.5) * sh, 3.3 + (Math.random() - 0.5) * sh, tz + (Math.random() - 0.5) * sh);
+    camera.position.set(tx + (Math.random() - 0.5) * sh, 3.3 + (car.userData.camUp || 0) + (Math.random() - 0.5) * sh, tz + (Math.random() - 0.5) * sh);
     camera.lookAt(pose.x + Math.sin(cam.yaw) * 12, 0.6, pose.z + Math.cos(cam.yaw) * 12);
     const fov = (camera.aspect < 1 ? 86 : 64) + Math.max(0, pose.speed - 8) * 0.42;
     cam.fov += (fov - cam.fov) * Math.min(1, dt * 3);
@@ -546,7 +606,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     for (const m of Object.values(tparts)) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   }
 
-  function setUnderglow(hex) { glow.visible = !!hex; if (hex) glow.material.color.setHex(hex); }
+  function setUnderglow(hex) { glowHex = hex; glow.visible = !!hex; if (hex) glow.material.color.setHex(hex); }
   // --- the day's conditions: barricades, speed cameras, the surge zone, rain
   let dayGroup = null, rain = null, blinkers = [], camFlash = [];
   const stripe = (() => {
@@ -653,5 +713,5 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     poles.instanceMatrix.needsUpdate = true;
     if (heads) heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
   }
-  return { resize, frame, setRoute, colorRoute, setUnderglow, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
+  return { resize, frame, setRoute, colorRoute, setUnderglow, setPlayerCar, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
 }

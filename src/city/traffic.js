@@ -16,7 +16,6 @@ const KINDS = {
   van: { m: 2300, ax: 1.7, r: 1.2, len: 5.2, wid: 2.1, h: 2.3, cruise: [8.5, 10.5] },
 };
 const COLORS = [0xd94b3d, 0x3d7fd9, 0xe8e2d4, 0x2f3137, 0x8a9199, 0xe0b23a, 0x4fa35c, 0x7a4fb0, 0xc8c8c8, 0x5a3a2a];
-const PLAYER = { m: 1200, ax: 1.3, r: 1.05 };
 
 const right = (dx, dz) => [-dz, dx];
 
@@ -348,7 +347,7 @@ export function createTraffic(city, seed = 1) {
     // the player against traffic: a real two-body impact, both ways
     for (const c of cars) {
       if (Math.abs(c.x - player.x) > 9 || Math.abs(c.z - player.z) > 9) continue;
-      const imp = collide(player, PLAYER, c, c.K, true, p);
+      const imp = collide(player, p, c, c.K, true, p);   // the player's shape and mass come from its params
       if (imp > 0) {
         wake(c, imp);
         const sh = Math.sin(player.h), ch = Math.cos(player.h);

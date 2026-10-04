@@ -7,7 +7,7 @@ const GEARS = [0, 11, 20, 29, 38, 99];   // m/s where each gear tops out (rpm cl
 
 export function createAudio() {
   let ctx = null, master, comp, meter, eng = null, noise = null, loops = {}, vol = 1;
-  let rainOn = false;
+  let rainOn = false, pitch = 1;
   let gear = 0, rpm = 900, tickT = 0, lastTick = -1, beepT = 0, spillWas = 0;
 
   function init() {
@@ -133,7 +133,7 @@ export function createAudio() {
       const frac = Math.min(1.1, (v - lo) / (hi - lo));
       const target = s.reverse ? 1400 + v * 250 : gear === 0 && v < 2 ? 900 + s.throttle * 2600 : 2400 + frac * 4200 + s.throttle * 300;
       rpm += (target - rpm) * Math.min(1, dt * (target < rpm ? 14 : 8));
-      const f = (rpm / 60) * 2;   // a four: two pulses a revolution
+      const f = (rpm / 60) * 2 * pitch;   // a four: two pulses a revolution (pitch: the car's character)
       for (const { o, mul } of eng.oscs) set(o.frequency, f * mul, 0.02);
       set(eng.lp.frequency, 380 + s.throttle * 2000 + rpm * 0.18, 0.05);
       set(eng.out.gain, on * (0.13 + s.throttle * 0.17) * (0.75 + 0.25 * s.cond), 0.05);
@@ -154,6 +154,7 @@ export function createAudio() {
       const k = left > 0 ? Math.ceil(left) : Math.floor(left * 2);
       if (k !== lastTick) { lastTick = k; if (left > 0) SFX.tick(left < 4); }
     },
+    setPitch(v) { pitch = v; },
     setRain(on) { rainOn = on; if (!ctx) return; set(loops.rain.g.gain, on ? 0.03 : 0, 0.5); set(loops.rainLow.g.gain, on ? 0.045 : 0, 0.5); },
     spill(amount) {
       if (!ctx) return;

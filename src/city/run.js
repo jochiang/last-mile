@@ -3,11 +3,10 @@
 // mods (each bought once, reroll for a little more each time). Damage and your rating carry over.
 
 import { P } from "../car2.js";
+import { CARS } from "./cars.js";
 import { HISTORY, avgRating, SHIFT } from "./shift.js";
 
 export const ECON = {
-  // the car payment, due after every shift: small while you learn the district, steep later
-  bill: (day) => Math.round(15 + 3 * (day - 1) + 0.6 * (day - 1) ** 2),
   signing: 40,                           // starting cash
   repairPerPct: 0.5,                     // $ per percentage point of condition
   rerollBase: 4, rerollStep: 2,
@@ -41,14 +40,21 @@ export const modById = Object.fromEntries(MODS.map((m) => [m.id, m]));
 
 function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); }
 
-export function makeRun(seed = Date.now() % 100000 + 1) {
-  return { seed, day: 1, cash: ECON.signing, cond: 1, ratings: HISTORY(), probation: false, mods: [], offers: [], rerolls: 0, over: null, log: [], earned: 0, R: null };
+export function makeRun(seed = Date.now() % 100000 + 1, car = "liftback") {
+  return { seed, car, day: 1, cash: ECON.signing, cond: 1, ratings: HISTORY(), probation: false, mods: [], offers: [], rerolls: 0, over: null, log: [], earned: 0, R: null };
 }
 const R = (run) => (run.R ||= rng(run.seed * 31 + run.day * 7 + run.rerolls));
 
+export const carOf = (run) => CARS[run.car] || CARS.liftback;
+/** The car payment due after day d's shift: each car has its own curve. */
+export const billFor = (run, d) => carOf(run).bill(d);
+
 /** The car's physics and the game rules, with this run's mods applied. */
 export function effects(run) {
-  const f = fx0(), p = { ...P };
+  // the car first (its physics and what knocks and hard driving cost), then the mods on top
+  const car = carOf(run), f = fx0(), p = { ...P, ...car.p };
+  if (car.fx.dmgMul) f.dmgMul *= car.fx.dmgMul;
+  if (car.fx.spillMul) f.spillMul *= car.fx.spillMul;
   for (const id of run.mods) modById[id].apply(f, p);
   return { fx: f, p };
 }
@@ -85,7 +91,7 @@ export function buy(run, id) {
 
 /** Close out a shift: pay, keep the damage and ratings, take the bill. Returns the day's summary. */
 export function settleShift(run, shift, car) {
-  const bill = ECON.bill(run.day);
+  const bill = billFor(run, run.day);
   run.cash += shift.money; run.earned += shift.money;
   run.cond = car.cond;
   run.ratings = shift.ratings.slice(-SHIFT.memory);
