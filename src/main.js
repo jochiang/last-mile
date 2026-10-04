@@ -161,7 +161,7 @@ const MODE_INFO = {
 const MODEL_NAME = { pedals: "Pedals", arcade: "Arcade" };
 const HELP = {
   pedals: "Right thumb on the strip: top is gas, bottom is brake, the yellow band is both at once. Lift off mid-corner to tighten your line, brake into a corner to rotate the car, careful with full gas in slow corners (the rear steps out). Keys: A/D steer, W gas, S brake (both together works), Esc menu.",
-  arcade: "Hold DRIFT while turning, let go once the sparks change colour for a boost (yellow → blue → orange → purple). Keys: A/D steer, Space drift, S brake, Esc menu.",
+  arcade: "Hold DRIFT while turning, let go once the sparks change color for a boost (yellow → blue → orange → purple). Keys: A/D steer, Space drift, S brake, Esc menu.",
 };
 function renderMenu() {
   document.querySelectorAll(".seg").forEach((b) => b.classList.toggle("sel", b.dataset.model === settings.model));
@@ -207,7 +207,7 @@ $("modes").addEventListener("click", async (e) => {
   $("msg").textContent = "";
   if (settings.mode === "tilt") {
     const err = await input.enableTilt();
-    $("msg").textContent = err || "Hold the phone how you'll race, then press RACE (that sets the centre).";
+    $("msg").textContent = err || "Hold the phone how you'll race, then press RACE (that sets the center).";
   }
   renderMenu();
 });

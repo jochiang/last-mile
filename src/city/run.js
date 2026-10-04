@@ -18,7 +18,7 @@ const fx0 = () => ({ tipMul: 1, timeMul: 1, spillMul: 1, starBonus: 0, lateForgi
 
 export const MODS = [
   // performance
-  { id: "tyres", kind: "perf", name: "Sticky tyres", price: 30, desc: "+10% grip", apply: (f, p) => { p.mu *= 1.1; p.muOff *= 1.1; } },
+  { id: "tyres", kind: "perf", name: "Sticky tires", price: 30, desc: "+10% grip", apply: (f, p) => { p.mu *= 1.1; p.muOff *= 1.1; } },
   { id: "ecu", kind: "perf", name: "ECU remap", price: 35, desc: "+15% power", apply: (f, p) => { p.power *= 1.15; p.fMax *= 1.1; } },
   { id: "brakes", kind: "perf", name: "Big brakes", price: 25, desc: "+15% braking, later ABS", apply: (f, p) => { p.brakeMax *= 1.15; p.abs = Math.min(0.95, p.abs + 0.05); } },
   { id: "coilovers", kind: "perf", name: "Coilovers", price: 30, desc: "Flatter cornering: −30% spills", apply: (f, p) => { f.spillMul *= 0.7; p.hcg *= 0.85; } },
