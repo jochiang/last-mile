@@ -9,7 +9,7 @@ import { DT } from "../car.js";
 const inSurge = (r, x, z) => !!r && x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
 
 export const SHIFT = {
-  length: 5 * 60,          // seconds
+  length: 4 * 60,          // seconds (5 → 4 min, 2026-10-04: the user found days 4-5 comfortable; shorter shifts = less money a day, same payments)
   zoneR: 7.5, stopSpeed: 3.2, stopHold: 0.3,   // a rolling crawl (<12 km/h) in the circle counts (user: the old 6.5 km/h was too strict)
   pace: 13, slack: 10,     // the clock: street distance at this speed (m/s), plus slack seconds
   base: 3, perKm: 9, tipMax: 7,
