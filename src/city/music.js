@@ -72,7 +72,7 @@ function makeKit(ctx, outD, outM, samples = {}) {
       o.connect(g); g.connect(out); o.start(t); o.stop(t + 1.2);
     },
     snare(t, v = 1, gated = true) {
-      if (play(kit.snare, t, v * 0.9, 1, { gated: gated ? 0.6 : 0, wet: gated ? 0 : 0.12 })) return;
+      if (play(kit.snare, t, v * 0.9 * (kit.snareLvl ?? 1), 1, { gated: gated ? 0.6 : 0, wet: gated ? 0 : 0.12 })) return;
       const s = noiseSrc(t, 0.4), f = ctx.createBiquadFilter(), g = ctx.createGain();
       f.type = "bandpass"; f.frequency.value = 1800; f.Q.value = 0.8;
       env(g, t, 0.002, 0.55 * v, gated ? 0.28 : 0.16);
@@ -213,7 +213,7 @@ const LANE_SPLIT = {
   levels: { drums: 0.58, music: 1.0 },   // user: the street drums sat hot against the melody
   // (user: the first street kit's samples were "odd": finger snaps for claps, a slowed-down tom)
   kits: {
-    A: { kick: "kick_808", snare: "snare_zome", clap: null, hat: "hat_zild", ohat: "hat_open", tom: null },
+    A: { kick: "kick_808", snare: "snare_zome", snareLvl: 0.55, clap: null, hat: "hat_zild", ohat: "hat_open", tom: null },   // snare -5 dB (user: "mostly the snare")
     B: { kick: "kick_fat", snare: "snare_dolf", clap: null, hat: "hat_cab", ohat: "hat_open", tom: null },
   },
   kit: null,
