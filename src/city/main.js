@@ -8,7 +8,7 @@ import { createAudio } from "./audio.js";
 import { createMusic, loadSamples } from "./music.js";
 import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
 import { createTraffic } from "./traffic.js";
-import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf } from "./run.js";
+import { runReport, makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf } from "./run.js";
 import { CARS, CAR_ORDER } from "./cars.js";
 import { dist, mph } from "./units.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
@@ -60,6 +60,7 @@ function newShift() {
   carP = p;
   if (run) { car.cond = run.cond; car.dmgMul = fx.dmgMul; car.bullbar = fx.bullbar; }
   shift = makeShift(city, run ? run.seed * 101 + run.day : 1, { ratings: run ? run.ratings : undefined, fx, plan });
+  shift.condStart = car.cond;
   view.setPlayerCar(run ? run.car || "liftback" : "liftback", run ? run.mods : []);
   audio.setPitch(carOf(run || {}).audio.pitch);
   view.setUnderglow(fx.underglow);
@@ -328,7 +329,7 @@ function loop(now) {
     view.colorRoute(Math.hypot(car.vx, car.vz), sCar, (plan, s) => (s < sCar ? Infinity : allowedSpeed(plan, s)));
   }
   for (const e of events) {
-    if (e.type === "wall") audio.sfx("thump", e.speed);
+    if (e.type === "wall") { audio.sfx("thump", e.speed); if (e.speed > 2.5 && shift) shift.hits = (shift.hits || 0) + 1; }
     if (e.type === "pole") audio.sfx("clang");
     if (e.type === "reset") audio.sfx("reset");
   }
@@ -396,6 +397,8 @@ function garageScreen(last) {
     <div class="row" style="justify-content:space-between"><b>Shop</b> <button class="sm" data-act="reroll" ${rerollCost(run) > run.cash ? "disabled" : ""}>Reroll ${money(rerollCost(run))}</button></div>
     <div class="shop">${offers}</div>
     ${run.mods.length ? `<div class="chips">${run.mods.map((id) => `<span class="chip">${modById[id].name}</span>`).join("")}</div>` : ""}
+    <details><summary>Run report so far</summary><textarea id="report" readonly style="width:100%;height:90px;font:11px/1.35 ui-monospace,monospace;background:#0e1116;color:#cfe0ff;border:1px solid #333;border-radius:8px;padding:6px">${runReport(run)}</textarea>
+      <div class="row"><button class="sm" data-act="copyreport">Copy report</button> <span class="muted" id="copied"></span></div></details>
     <div class="row"><button class="go" data-act="start">START DAY ${run.day}</button> <button class="sm" data-act="title">Title</button></div>`;
 }
 
@@ -407,6 +410,9 @@ function overScreen() {
     <div class="stats"><div><b>${run.day}</b><span>DAYS</span></div><div><b>${money(run.earned)}</b><span>EARNED</span></div><div><b>${run.mods.length}</b><span>MODS</span></div>${last ? `<div><b>${money(last.earned)}</b><span>LAST SHIFT</span></div>` : ""}</div>
     <details><summary>Last shift</summary><table><tr><th>Order</th><th>To</th><th>Earned</th><th>Tip</th><th>Stars</th><th>Spilled</th></tr>
     ${shift.log.map((l) => `<tr><td>${l.item}</td><td>${l.to}</td><td>$${l.earned.toFixed(2)}</td><td>$${l.tip.toFixed(2)}</td><td>${l.stars.toFixed(1)}</td><td>${Math.round((1 - l.quality) * 100)}%</td></tr>`).join("")}</table></details>
+    <details open><summary>Run report (copy and paste it into the chat for balancing)</summary>
+      <textarea id="report" readonly style="width:100%;height:120px;font:11px/1.35 ui-monospace,monospace;background:#0e1116;color:#cfe0ff;border:1px solid #333;border-radius:8px;padding:6px">${runReport(run)}</textarea>
+      <div class="row"><button class="sm" data-act="copyreport">Copy report</button> <span class="muted" id="copied"></span></div></details>
     <div class="row"><button class="go" data-act="newrun">NEW RUN</button> <button class="sm" data-act="title">Title</button></div>`;
 }
 
@@ -475,6 +481,12 @@ $("screen").addEventListener("click", (e) => {
   if (act === "resume") { start(); return; }
   if (act === "abandon") { shift.over = "abandoned"; running = false; endShift(); return; }
   if (act === "title") { show("title"); return; }
+  if (act === "copyreport") {
+    // the clipboard API needs HTTPS; on plain http select the text so the phone's copy menu appears
+    const ta = $("report"); ta.focus(); ta.select();
+    (navigator.clipboard?.writeText(ta.value) ?? Promise.reject()).then(() => { $("copied").textContent = "Copied"; }, () => { document.execCommand?.("copy"); $("copied").textContent = "Selected: copy it from your phone's menu"; });
+    return;
+  }
   if (act === "preview") { previewMod = previewMod === b.dataset.id ? null : b.dataset.id; show("garage"); return; }
   if (act === "buy" && buy(run, b.dataset.id)) { audio.sfx("buy"); previewMod = null; }
   if (act === "reroll" && reroll(run)) audio.sfx("tick", false);

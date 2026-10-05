@@ -98,13 +98,33 @@ export function settleShift(run, shift, car) {
   run.cash -= bill;
   // the rating is judged at the end of the day: under the line is probation, twice running is the end
   const r = avgRating(run.ratings), low = r < SHIFT.deactivate;
-  const day = { day: run.day, earned: shift.money, bill, jobs: shift.jobs, cash: run.cash, rating: r, probation: low && !run.probation };
+  // what happened, for the run report (balancing from real runs)
+  const L = shift.log, n = Math.max(1, L.length);
+  const day = {
+    day: run.day, earned: shift.money, bill, jobs: shift.jobs, cash: run.cash, rating: r, probation: low && !run.probation,
+    conds: shift.plan?.conds || [], traffic: shift.plan?.traffic || 0, late: L.filter((l) => l.late > 0).length,
+    stars: L.reduce((a, l) => a + l.stars, 0) / n, spilled: L.reduce((a, l) => a + (1 - l.quality), 0) / n,
+    tips: L.reduce((a, l) => a + l.tip, 0), fines: shift.fines || 0, hits: shift.hits || 0, condStart: shift.condStart ?? 1, condEnd: car.cond,
+    mods: run.mods.slice(), kinds: L.map((l) => l.kind?.[0] || "?").join(""),
+  };
   run.log.push(day);
   if (low && run.probation) run.over = "deactivated";
   else if (run.cash < 0) run.over = "repo";
   run.probation = low;
   if (!run.over) { run.day++; run.rerolls = 0; rollOffers(run); }
   return day;
+}
+
+/** A plain-text summary of a run, one line per day, for pasting into a balancing chat. */
+export function runReport(run) {
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const head = `Last Mile run · car ${run.car || "liftback"} · seed ${run.seed} · ${run.over ? `ended day ${run.day} (${run.over})` : `day ${run.day}`} · earned $${run.earned.toFixed(0)} · mods: ${run.mods.join(", ") || "none"}`;
+  const rows = run.log.map((d) => [
+    `d${d.day}`, (d.conds || []).join("+") || "-", `${d.traffic ?? "?"}cars`, `$${(d.earned ?? 0).toFixed(0)}/$${d.bill}`, `${d.jobs}jobs`,
+    `late${d.late ?? "?"}`, `★${(d.stars ?? 0).toFixed(1)}`, `spill${pct(d.spilled ?? 0)}`, `tips$${(d.tips ?? 0).toFixed(0)}`,
+    `hits${d.hits ?? "?"}`, `fines$${d.fines ?? 0}`, `car${pct(d.condStart ?? 1)}→${pct(d.condEnd ?? 1)}`, `cash$${d.cash.toFixed(0)}`, `rating${(d.rating ?? 0).toFixed(2)}`, d.kinds || "",
+  ].join(" "));
+  return [head, ...rows].join("\n");
 }
 
 /** A run that can go in localStorage (no functions). */
