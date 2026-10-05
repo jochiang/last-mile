@@ -68,7 +68,7 @@ export function driveShift(city, car, sh, p, log = null, traffic = null, stats =
     } else if (!rt || tick - rtT > 15) { rt = route(city, car.x, car.z, car.h, target, Math.max(0, car.u), rt?.target === target ? rt : null); rt.target = target; rtT = tick; }
     // pure pursuit along the polyline
     const s = Math.hypot(car.vx, car.vz), look = 6 + s * 0.5;
-    let px = target.x, pz = target.z, acc = 0, found = false, turnAt = Infinity, turnAng = 0, turnLeft = false;
+    let px = target.x, pz = target.z, acc = 0, found = false, turnAt = Infinity, turnAng = 0, turnLeft = false, bendV = Infinity;
     const pts = rt.points;
     let bestI = 0, bestD = Infinity;
     for (let i = 0; i < pts.length - 1; i++) {
@@ -93,6 +93,8 @@ export function driveShift(city, car, sh, p, log = null, traffic = null, stats =
         const a1 = Math.atan2(bx - ax, bz - az), a2 = Math.atan2(cx - bx, cz - bz);
         const da = Math.atan2(Math.sin(a2 - a1), Math.cos(a2 - a1)), ang = Math.abs(da);
         if (ang > 0.3) { turnAt = acc; turnAng = ang; turnLeft = da > 0; }
+        // a bend: many small angles; its radius sets a speed (brake for it in time)
+        else if (ang > 0.02 && acc < 90) { const r = (L + Math.hypot(cx - bx, cz - bz)) / 2 / ang; bendV = Math.min(bendV, Math.sqrt(11 * r + 2 * 6 * Math.max(0, acc - 3))); }
       }
     }
     // smart: into a right turn, aim at the corner itself, not past it (pure pursuit would cut across
@@ -175,7 +177,7 @@ export function driveShift(city, car, sh, p, log = null, traffic = null, stats =
     const vTurn = (turnAng > 0 ? (smart && !process.env.SLOWTURN ? (turnLeft ? 9 + (Math.PI - turnAng) * 3 : 7.5 + (Math.PI - turnAng) * 2) : 7 + (Math.PI - turnAng) * 2) : 40) * careful;
     // cakes and catering trays hate lengthwise g: brake gently with them aboard
     const brakeG = fragile ? 0.55 * 9.81 : (smart ? +(process.env.BRK || 0.7) : 0.7) * p.brakeMax * 9.81 * careful;
-    let vt = Math.min(40, capV, Math.sqrt(vTurn * vTurn + 2 * brakeG * Math.max(0, turnAt - 4)), Math.sqrt(2 * brakeG * Math.max(0, remaining - 2)));
+    let vt = Math.min(40, capV, bendV, Math.sqrt(vTurn * vTurn + 2 * brakeG * Math.max(0, turnAt - 4)), Math.sqrt(2 * brakeG * Math.max(0, remaining - 2)));
     // traffic: don't drive into the car in front (this bot never overtakes: a cautious baseline),
     // and yield at a junction that has traffic in it or crossing toward it
     if (traffic) {

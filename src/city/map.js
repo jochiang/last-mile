@@ -1,3 +1,6 @@
+import { setPts, pointAt, project, clipHalf, polyArea, rectPoly, dirFrom } from "./edges.js";
+import { approachPhase } from "./signals.js";
+
 // The district: a 6x6 grid of hand-picked block types between streets. Everything the game needs
 // comes out of buildCity(): colliders, the surface (road or grass), the road graph for the GPS,
 // restaurants, customer addresses, and the dressing the renderer draws.
@@ -8,22 +11,33 @@
 //
 // The GPS only knows the streets. Alleys, the parking lot and the park are the shortcuts a player
 // learns.
+//
+// Not all of it is grid (2026-10-05, user: hard 90s everywhere "limits the mechanical expression"):
+// Broadway runs corner to corner on the diagonal x + z = 0 (NE to SW), cutting six blocks into
+// wedges (flatiron buildings) and making 6-way junctions, and the NW and SE corners are sweeping
+// bends instead of right angles. Streets are polylines (edges.js).
 
 export const PITCH = 66, NB = 6, ORIGIN = -3 * PITCH;
 // streets widened 2026-10-03 (10 → 14 m, for power U-turns) and again 2026-10-04 for traffic:
 // four 4 m lanes, GTA-sized 6 m sidewalks (drivable). LANE: where stops are, the kerbside lane.
 export const CURB = 8, LINE = 14, LANE = 6, POLE = 8.6, LANE_W = 4;
 export const X = (k) => ORIGIN + k * PITCH;
+export const BEND_R = 50;   // the corner bends' radius (centreline)
+// junction sizes: how far from a node the carriageway of every street through it reaches (jr, where
+// traffic lanes start) and the sidewalks (jw, where lampposts and crossings start). Broadway's
+// junctions are bigger: streets cross at 45 degrees.
+const JR = 8, JW = 14, JR_DIAG = 18, JW_DIAG = 30;
 
 // B buildings, P park (neighbouring parks merge across the street), L parking lot,
 // | alley north-south, - alley east-west
+// (r + c = 5 are the blocks Broadway cuts: they must be B)
 const LAYOUT = [
   "BB|BBB",
-  "BPPBLB",
+  "BPPBBB",
   "-PPB-|",
-  "BB|LBB",
-  "B-BBPB",
-  "BBB|BB",
+  "BBBLBB",
+  "BB-BPB",
+  "BBL|BB",
 ];
 
 const AVES = ["1st Ave", "2nd Ave", "3rd Ave", "4th Ave", "5th Ave", "6th Ave", "7th Ave"];       // x-lines
@@ -55,26 +69,46 @@ export function buildCity(seed = 7) {
   // --- road graph: 7x7 intersections; a street between two parks is park instead
   const nodes = [];
   const nid = (i, j) => j * (NB + 1) + i;
-  for (let j = 0; j <= NB; j++) for (let i = 0; i <= NB; i++) nodes.push({ i, j, x: X(i), z: X(j), adj: [], alive: false });
+  for (let j = 0; j <= NB; j++) for (let i = 0; i <= NB; i++) {
+    const diag = i + j === NB;   // on Broadway
+    nodes.push({ i, j, x: X(i), z: X(j), adj: [], alive: false, jr: diag ? JR_DIAG : JR, jw: diag ? JW_DIAG : JW, signal: diag });
+  }
   const edges = [];
-  const addEdge = (a, b, name) => {
-    const A = nodes[a], B = nodes[b], len = Math.hypot(B.x - A.x, B.z - A.z);
-    const e = { a, b, ax: A.x, az: A.z, bx: B.x, bz: B.z, len, name, id: edges.length };
+  const addEdge = (a, b, name, pts = null) => {
+    const A = nodes[a], B = nodes[b];
+    const e = setPts({ a, b, name, id: edges.length }, pts || [[A.x, A.z], [B.x, B.z]]);
     edges.push(e);
     A.adj.push({ n: b, e }); B.adj.push({ n: a, e });
     A.alive = B.alive = true;
   };
+  // the two bent corners: no node there, one curved street from neighbour to neighbour
+  const BENT = new Set([nid(0, 0), nid(NB, NB)]);
+  const touchesBend = (a, b) => BENT.has(a) || BENT.has(b);
   const removed = [];   // street rects that became park
   for (let j = 0; j <= NB; j++) for (let i = 0; i < NB; i++) {
     // along z-line j, between blocks (j-1, i) and (j, i)
     if (isPark(j - 1, i) && isPark(j, i)) removed.push({ x0: X(i) + CURB, x1: X(i + 1) - CURB, z0: X(j) - CURB, z1: X(j) + CURB });
-    else addEdge(nid(i, j), nid(i + 1, j), STS[j]);
+    else if (!touchesBend(nid(i, j), nid(i + 1, j))) addEdge(nid(i, j), nid(i + 1, j), STS[j]);
   }
   for (let i = 0; i <= NB; i++) for (let j = 0; j < NB; j++) {
     if (isPark(j, i - 1) && isPark(j, i)) removed.push({ x0: X(i) - CURB, x1: X(i) + CURB, z0: X(j) + CURB, z1: X(j + 1) - CURB });
-    else addEdge(nid(i, j), nid(i, j + 1), AVES[i]);
+    else if (!touchesBend(nid(i, j), nid(i, j + 1))) addEdge(nid(i, j), nid(i, j + 1), AVES[i]);
   }
-  const deadNodes = nodes.filter((n) => !n.alive);
+  // Broadway: node (6, 0) to node (0, 6), one block at a time
+  for (let i = NB; i > 0; i--) addEdge(nid(i, NB - i), nid(i - 1, NB - i + 1), "Broadway");
+  // the bends: straight in from the neighbouring node, a quarter circle round the corner, straight out
+  const bend = (from, to, cx, cz, th0, th1, name) => {
+    const A = nodes[from], B = nodes[to], pts = [[A.x, A.z]];
+    for (let k = 0; k <= 12; k++) { const th = th0 + ((th1 - th0) * k) / 12; pts.push([cx + BEND_R * Math.cos(th), cz + BEND_R * Math.sin(th)]); }
+    pts.push([B.x, B.z]);
+    addEdge(from, to, name, pts);
+    return { cx, cz, th0, th1 };
+  };
+  const bends = [
+    { ...bend(nid(1, 0), nid(0, 1), X(0) + BEND_R, X(0) + BEND_R, -Math.PI / 2, -Math.PI, "Harbor Curve"), corner: [X(0), X(0)] },
+    { ...bend(nid(NB - 1, NB), nid(NB, NB - 1), X(NB) - BEND_R, X(NB) - BEND_R, Math.PI / 2, 0, "Mill Bend"), corner: [X(NB), X(NB)] },
+  ];
+  const deadNodes = nodes.filter((n, k) => !n.alive && !BENT.has(k));
   for (const n of deadNodes) removed.push({ x0: n.x - CURB, x1: n.x + CURB, z0: n.z - CURB, z1: n.z + CURB, fountain: true });
   const edgeAt = (r0, c0, face) => {
     // the street edge in front of a block face, or null if that street is gone
@@ -84,14 +118,49 @@ export function buildCity(seed = 7) {
     return edges.find((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a)) || null;
   };
 
+  // --- block shapes: most blocks are rectangles; Broadway splits six into two wedges each, and the
+  // bends round off two corner blocks. A block part is a list of half-planes, each a function of the
+  // inset d from the street centreline (CURB for the sidewalk's edge, LINE for the building line).
+  const S2 = Math.SQRT1_2;
+  const discClips = (b) => Array.from({ length: 32 }, (_, k) => {
+    const ux = Math.cos((k / 32) * Math.PI * 2), uz = Math.sin((k / 32) * Math.PI * 2);
+    return (d) => [-ux, -uz, -(BEND_R - d) - (ux * b.cx + uz * b.cz)];
+  });
+  const blockParts = (r, c) => {
+    if (r + c === NB - 1) return [[(d) => [-S2, -S2, d]], [(d) => [S2, S2, d]]];   // either side of Broadway
+    if (r === 0 && c === 0) return [discClips(bends[0])];
+    if (r === NB - 1 && c === NB - 1) return [discClips(bends[1])];
+    return [[]];
+  };
+  const clipAll = (poly, part, d) => part.reduce((q, f) => (q.length ? clipHalf(q, ...f(d)) : q), poly);
+  const partPoly = (r, c, part, d) => clipAll(rectPoly(X(c) + d, X(r) + d, X(c + 1) - d, X(r + 1) - d), part, d);
+
   // --- blocks
   const buildings = [], boxes = [], circles = [], trees = [], parkedCars = [], dumpsters = [], parks = [], lots = [], alleys = [];
   const solid = (x0, z0, x1, z1, extra = {}) => { const b = { x0, z0, x1, z1, ...extra }; boxes.push(b); return b; };
+  let curParts = [[]];   // the block being filled
   const building = (x0, z0, x1, z1) => {
-    const floors = 3 + Math.floor(R() * 10);
-    const b = solid(x0, z0, x1, z1, { kind: "building", h: floors * 3.2, floors, color: PALETTE[Math.floor(R() * PALETTE.length)] });
-    buildings.push(b);
-    return b;
+    const floors = 3 + Math.floor(R() * 10), color = PALETTE[Math.floor(R() * PALETTE.length)];
+    let out = null;
+    for (const part of curParts) {
+      if (!part.length) { out = solid(x0, z0, x1, z1, { kind: "building", h: floors * 3.2, floors, color }); buildings.push(out); continue; }
+      // cut to the block's shape: a wedge or a rounded corner (a flatiron, at the sharp end)
+      const poly = clipAll(rectPoly(x0, z0, x1, z1), part, LINE);
+      const area = poly.length >= 3 ? polyArea(poly) : 0;
+      if (area < 30) continue;
+      if (poly.length === 4 && Math.abs(area - (x1 - x0) * (z1 - z0)) < 0.5) { out = solid(x0, z0, x1, z1, { kind: "building", h: floors * 3.2, floors, color }); buildings.push(out); continue; }
+      const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+      out = { x0: Math.min(...xs), z0: Math.min(...zs), x1: Math.max(...xs), z1: Math.max(...zs), poly, kind: "building", h: floors * 3.2, floors, color };
+      buildings.push(out);
+      // colliders: a staircase of 1.5 m slices under it (the colliders are boxes)
+      for (let sx = out.x0; sx < out.x1 - 0.05; sx += 1.5) {
+        const sl = clipHalf(clipHalf(poly, 1, 0, sx), -1, 0, -Math.min(out.x1, sx + 1.5));
+        if (sl.length < 3) continue;
+        const sz = sl.map((p) => p[1]);
+        solid(sx, Math.min(...sz), Math.min(out.x1, sx + 1.5), Math.max(...sz), { kind: "building", part: out });
+      }
+    }
+    return out;
   };
   // fill a rect with 1-3 buildings along its long side
   const fill = (x0, z0, x1, z1) => {
@@ -106,6 +175,7 @@ export function buildCity(seed = 7) {
   };
   for (let r = 0; r < NB; r++) for (let c = 0; c < NB; c++) {
     const t = type(r, c);
+    curParts = blockParts(r, c);
     const bx0 = X(c), bx1 = X(c + 1), bz0 = X(r), bz1 = X(r + 1);
     const ix0 = bx0 + LINE, ix1 = bx1 - LINE, iz0 = bz0 + LINE, iz1 = bz1 - LINE, mx = (ix0 + ix1) / 2, mz = (iz0 + iz1) / 2;
     if (t === "B") {
@@ -157,6 +227,7 @@ export function buildCity(seed = 7) {
       trees.push(t); circles.push(t);
     }
   }
+  curParts = [[]];
   // the city's edge: a wall of buildings beyond the outer streets
   const E0 = X(0) - LINE, E1 = X(NB) + LINE, D = 24;
   for (let k = 0; k < NB + 1; k++) {
@@ -167,13 +238,31 @@ export function buildCity(seed = 7) {
     fill(E1, Math.max(E0, a), E1 + D, Math.min(E1, b));
   }
 
-  // --- lampposts along every street, both sides (breakable)
+  // outside each bend, where the corner used to be: a lawn with a few trees
+  const lawns = bends.map((b) => {
+    const sx = Math.sign(b.corner[0] - b.cx), sz = Math.sign(b.corner[1] - b.cz);   // toward the old corner
+    const K = [b.corner[0] + sx * LINE, b.corner[1] + sz * LINE];
+    for (let k = 0, n = 0; k < 60 && n < 6; k++) {
+      const x = b.cx + sx * R() * (BEND_R + LINE), z = b.cz + sz * R() * (BEND_R + LINE);
+      if (Math.hypot(x - b.cx, z - b.cz) < BEND_R + LINE + 4 || trees.some((t) => Math.hypot(t.x - x, t.z - z) < 6)) continue;
+      const t = { x, z, r: 0.6, s: 0.9 + R() * 0.6, kind: "tree" };
+      trees.push(t); circles.push(t); n++;
+    }
+    return { ...b, K, sx, sz };
+  });
+
+  // --- lampposts along every street, both sides (breakable), from the sidewalk corners of each
+  // junction; the arm reaches out over the road (yaw)
   const poles = [];
   for (const e of edges) {
-    const dx = (e.bx - e.ax) / e.len, dz = (e.bz - e.az) / e.len;
-    for (let s = 12; s < e.len - 11; s += 16) {
+    const s0 = nodes[e.a].jw - 2, s1 = e.len - nodes[e.b].jw + 3;
+    for (let s = s0; s < s1; s += 16) {
+      const q = pointAt(e, s);
       for (const side of [-1, 1]) {
-        const p = { x: e.ax + dx * s - dz * side * POLE, z: e.az + dz * s + dx * side * POLE, r: 0.25, kind: "pole", broken: false };
+        const x = q.x - q.dz * side * POLE, z = q.z + q.dx * side * POLE;
+        // not standing in some other street (where two streets meet at an angle)
+        if (edges.some((o) => o !== e && project(o, x, z).d < CURB + 1)) continue;
+        const p = { x, z, r: 0.25, kind: "pole", broken: false, yaw: Math.atan2(q.dz * side, -q.dx * side) };
         poles.push(p); circles.push(p);
       }
     }
@@ -206,11 +295,44 @@ export function buildCity(seed = 7) {
     }
   }
 
+  // Broadway's own addresses: one each side of every block of it, at the wedges' long faces
+  for (const e of edges.filter((q) => q.name === "Broadway")) {
+    const q = pointAt(e, e.len / 2), r = Math.floor((q.z - ORIGIN) / PITCH), c = Math.floor((q.x - ORIGIN) / PITCH);
+    for (const side of [-1, 1]) {
+      const x = q.x - q.dz * side * LANE, z = q.z + q.dx * side * LANE;
+      addresses.push({ x, z, edge: e, face: "D", block: [r, c], t: e.len / 2, label: `${100 * (r + 1) + 10 + Math.floor(R() * 80)} Broadway` });
+    }
+  }
+
   // --- surface: 1 m cells, 1 = grass
   const S0 = E0 - D, SN = Math.ceil(E1 + D - S0);
   const surf = new Uint8Array(SN * SN);
   for (const p of [...parks, ...removed]) {
     for (let z = Math.floor(p.z0 - S0); z < Math.ceil(p.z1 - S0); z++) for (let x = Math.floor(p.x0 - S0); x < Math.ceil(p.x1 - S0); x++) surf[z * SN + x] = 1;
+  }
+  // the lawns outside the bends (cut the corner and you're on the grass)
+  for (const l of lawns) {
+    const xa = Math.min(l.K[0], l.cx), xb = Math.max(l.K[0], l.cx), za = Math.min(l.K[1], l.cz), zb = Math.max(l.K[1], l.cz);
+    for (let z = Math.floor(za - S0); z < Math.ceil(zb - S0); z++) for (let x = Math.floor(xa - S0); x < Math.ceil(xb - S0); x++) {
+      if (Math.hypot(x + S0 + 0.5 - l.cx, z + S0 + 0.5 - l.cz) > BEND_R + LINE) surf[z * SN + x] = 1;
+    }
+  }
+  // traffic lights: one head per approach to each Broadway junction, on the far-right corner of the
+  // stop line, facing the oncoming traffic
+  const signals = [];
+  nodes.forEach((N, k) => {
+    if (!N.signal || !N.alive) return;
+    for (const { e } of N.adj) {
+      const [lx, lz] = dirFrom(e, k);   // leaving along e; the approach comes the other way
+      const rx = lz, rz = -lx;          // the right of the approaching traffic
+      signals.push({ node: k, phase: approachPhase(e), x: N.x + lx * (N.jr + 3) + rx * (CURB + 1.4), z: N.z + lz * (N.jr + 3) + rz * (CURB + 1.4), h: Math.atan2(lx, lz) });
+    }
+  });
+  // sidewalk outlines for the renderer: each block part at the kerb
+  const walks = [];
+  for (let r = 0; r < NB; r++) for (let c = 0; c < NB; c++) {
+    if (isPark(r, c)) continue;
+    for (const part of blockParts(r, c)) { const q = partPoly(r, c, part, CURB); if (q.length >= 3) walks.push(q); }
   }
   const surfaceAt = (x, z) => {
     const i = Math.floor(x - S0), j = Math.floor(z - S0);
@@ -237,7 +359,7 @@ export function buildCity(seed = 7) {
   };
 
   return {
-    nodes, edges, removed, deadNodes, buildings, boxes, circles, trees, poles, parkedCars, dumpsters, parks, lots, alleys,
+    nodes, edges, removed, deadNodes, buildings, boxes, circles, trees, poles, parkedCars, dumpsters, parks, lots, alleys, walks, lawns, signals,
     restaurants, addresses, surfaceAt, near, setExtra, bounds: { x0: S0, z0: S0, x1: S0 + SN, z1: S0 + SN }, inner: { x0: E0, x1: E1 },
     start: { x: X(3) + LANE, z: X(4) - 14, h: Math.PI },   // 4th Ave, heading north
   };
@@ -245,6 +367,5 @@ export function buildCity(seed = 7) {
 
 /** How far along edge e (0..len) the point (x, z) projects. */
 export function projT(e, x, z) {
-  const dx = (e.bx - e.ax) / e.len, dz = (e.bz - e.az) / e.len;
-  return Math.max(0, Math.min(e.len, (x - e.ax) * dx + (z - e.az) * dz));
+  return project(e, x, z).t;
 }

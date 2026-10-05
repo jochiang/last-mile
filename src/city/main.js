@@ -10,6 +10,7 @@ import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
 import { createTraffic } from "./traffic.js";
 import { runReport, makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf, termOf, payoffCost, payOff } from "./run.js";
 import { CARS, CAR_ORDER } from "./cars.js";
+import { pointAt } from "./edges.js";
 import { dist, mph } from "./units.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
 import { DT } from "../car.js";
@@ -264,10 +265,18 @@ const base = document.createElement("canvas"); base.width = Math.ceil((B.x1 - B.
 {
   const g = base.getContext("2d");
   g.fillStyle = "#2c3038"; g.fillRect(0, 0, base.width, base.height);
-  g.fillStyle = "#7d8088";
+  // the lawns outside the bends, then the streets over them (polylines: Broadway, the bends)
+  g.fillStyle = "#6dbb55";
+  for (const l of city.lawns) {
+    g.beginPath(); g.moveTo(bx(l.K[0]), bz(l.K[1]));
+    for (let k = 0; k <= 24; k++) { const th = l.th0 + ((l.th1 - l.th0) * k) / 24; g.lineTo(bx(l.cx + 64 * Math.cos(th)), bz(l.cz + 64 * Math.sin(th))); }
+    g.fill();
+  }
+  g.strokeStyle = "#7d8088"; g.lineWidth = CURB * 2 * mscale; g.lineCap = "square"; g.lineJoin = "round";
   for (const e of city.edges) {
-    const w = CURB * 2 * mscale;
-    g.fillRect(Math.min(bx(e.ax), bx(e.bx)) - w / 2, Math.min(bz(e.az), bz(e.bz)) - w / 2, Math.abs(bx(e.bx) - bx(e.ax)) + w, Math.abs(bz(e.bz) - bz(e.az)) + w);
+    g.beginPath();
+    e.pts.forEach(([x, z], i) => (i ? g.lineTo(bx(x), bz(z)) : g.moveTo(bx(x), bz(z))));
+    g.stroke();
   }
   g.fillStyle = "#6dbb55";
   for (const p of [...city.parks, ...city.removed]) g.fillRect(bx(p.x0), bz(p.z0), (p.x1 - p.x0) * mscale, (p.z1 - p.z0) * mscale);
@@ -295,7 +304,7 @@ function drawMap() {
   for (const c of traffic.cars) { mctx.beginPath(); mctx.arc(bx(c.x), bz(c.z), 3.2, 0, 7); mctx.fill(); }
   if (plan.surge) { mctx.fillStyle = "rgba(255,59,208,.28)"; mctx.fillRect(bx(plan.surge.x0), bz(plan.surge.z0), (plan.surge.x1 - plan.surge.x0) * mscale, (plan.surge.z1 - plan.surge.z0) * mscale); }
   mctx.strokeStyle = "#ff4a3a"; mctx.lineWidth = 7;
-  for (const e of plan.closed || []) { mctx.beginPath(); mctx.moveTo(bx(e.ax + (e.bx - e.ax) * 0.2), bz(e.az + (e.bz - e.az) * 0.2)); mctx.lineTo(bx(e.ax + (e.bx - e.ax) * 0.8), bz(e.az + (e.bz - e.az) * 0.8)); mctx.stroke(); }
+  for (const e of plan.closed || []) { const a = pointAt(e, e.len * 0.2), b = pointAt(e, e.len * 0.8); mctx.beginPath(); mctx.moveTo(bx(a.x), bz(a.z)); mctx.lineTo(bx(b.x), bz(b.z)); mctx.stroke(); }
   mctx.fillStyle = "#ffd23a";
   for (const c of plan.cameras || []) { mctx.beginPath(); mctx.arc(bx(c.cx), bz(c.cz), 5, 0, 7); mctx.fill(); }
   if (rt) {
@@ -385,7 +394,7 @@ function loop(now) {
     if (open.length) audio.clock(Math.min(...open.map((d) => d.left)));
     audio.spill(o.drops.reduce((a, d) => a + d.spill, 0));
   }
-  view.drawTraffic(traffic.cars, running ? a : 1);
+  view.drawTraffic(traffic.cars, running ? a : 1, traffic.time);
   view.frame(pose, dt, events, {
     route: running && rt,
     pickups: o ? [] : shift.offers.map((of) => ({ x: of.rest.x, z: of.rest.z, inZone: of.inZone })),

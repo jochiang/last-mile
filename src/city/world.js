@@ -90,7 +90,7 @@ export function stepCityCar(c, inp, city, p = P) {
 export function resetCityCar(c, city) {
   const s = nearestEdge(city, c.x, c.z), e = s.e;
   c.x = s.px; c.z = s.pz;
-  const h = Math.atan2(e.bx - e.ax, e.bz - e.az);
+  const h = Math.atan2(s.dx, s.dz);   // the street's direction there (bends curve)
   c.h = Math.cos(h - c.h) >= 0 ? h : h + Math.PI;
   c.u = 0; c.v = 0; c.r = 0; c.vx = c.vz = 0; c.delta = 0; c.ax = 0; c.stuckT = 0; c.reverse = false;
   c.events.push({ type: "reset" });

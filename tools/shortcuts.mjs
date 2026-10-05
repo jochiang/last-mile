@@ -3,15 +3,14 @@
 // points on streets, usable both ways, with a speed cap (dumpsters, parked cars, grass).
 import { CURB, LINE, X } from "../src/city/map.js";
 import { route } from "../src/city/gps.js";
+import { project } from "../src/city/edges.js";
 
 // a point on the nearest street, as a GPS destination
 function place(city, x, z) {
   let best = null;
   for (const e of city.edges) {
-    const dx = (e.bx - e.ax) / e.len, dz = (e.bz - e.az) / e.len;
-    const t = Math.max(0, Math.min(e.len, (x - e.ax) * dx + (z - e.az) * dz));
-    const d = Math.hypot(e.ax + dx * t - x, e.az + dz * t - z);
-    if (!best || d < best.d) best = { d, x: e.ax + dx * t, z: e.az + dz * t, edge: e, t };
+    const q = project(e, x, z);
+    if (!best || q.d < best.d) best = { d: q.d, x: q.px, z: q.pz, edge: e, t: q.t };
   }
   return best;
 }

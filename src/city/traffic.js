@@ -6,8 +6,10 @@
 //
 // Directions: a heading h faces (sin h, cos h); the right of travel direction (dx, dz) is (-dz, dx).
 
-import { CURB, LANE_W } from "./map.js";
+import { LANE_W } from "./map.js";
 import { nearestEdge } from "./gps.js";
+import { pointAt, dirFrom } from "./edges.js";
+import { signalState, approachPhase } from "./signals.js";
 import { DT } from "../car.js";
 
 const LANES = [LANE_W / 2, LANE_W * 1.5];   // lateral offsets of the inner and outer lanes
@@ -28,24 +30,30 @@ export function createTraffic(city, seed = 1) {
   const inside = new Map();   // node index -> Set of cars currently turning through that junction
   const events = [];
 
-  // --- paths: runs along an edge's lane, and curves through intersections
+  // --- paths: runs along an edge's lane (following its shape: bends curve), and curves through
+  // intersections. A run starts and ends clear of each junction (node.jr: Broadway's are bigger).
   const edgeDir = (e, from) => (from === e.a ? 1 : -1);
+  // a point s metres into a run: along the street, shifted right of travel into the lane
+  function runPos(g, s) {
+    const d = g.base + s, q = pointAt(g.e, g.dir > 0 ? d : g.e.len - d), dx = q.dx * g.dir, dz = q.dz * g.dir, [rx, rz] = right(dx, dz);
+    return { x: q.x + rx * g.off, z: q.z + rz * g.off, dx, dz };
+  }
   function runSeg(e, dir, lane) {
     const [na, nb] = dir > 0 ? [e.a, e.b] : [e.b, e.a];
-    const A = city.nodes[na], B = city.nodes[nb];
-    const dx = (B.x - A.x) / e.len, dz = (B.z - A.z) / e.len, [rx, rz] = right(dx, dz), off = LANES[lane];
-    return { type: "run", e, dir, lane, from: na, to: nb, dx, dz,
-      x0: A.x + dx * CURB + rx * off, z0: A.z + dz * CURB + rz * off, x1: B.x - dx * CURB + rx * off, z1: B.z - dz * CURB + rz * off, len: e.len - 2 * CURB };
+    const g = { type: "run", e, dir, lane, from: na, to: nb, off: LANES[lane], base: city.nodes[na].jr, len: e.len - city.nodes[na].jr - city.nodes[nb].jr };
+    const p0 = runPos(g, 0), p1 = runPos(g, g.len);
+    // start position and direction; end position and direction (dx/dz: the junction logic uses the end)
+    return Object.assign(g, { x0: p0.x, z0: p0.z, sdx: p0.dx, sdz: p0.dz, x1: p1.x, z1: p1.z, dx: p1.dx, dz: p1.dz });
   }
   function turnSeg(a, b) {
     // from the end of run a to the start of run b, through node a.to
     const P0 = [a.x1, a.z1], P2 = [b.x0, b.z0];
-    const cross = a.dx * b.dz - a.dz * b.dx, dot = a.dx * b.dx + a.dz * b.dz;
+    const cross = a.dx * b.sdz - a.dz * b.sdx, dot = a.dx * b.sdx + a.dz * b.sdz;
     let P1;
-    if (Math.abs(cross) < 0.1) P1 = dot > 0 ? [(P0[0] + P2[0]) / 2, (P0[1] + P2[1]) / 2] : [P0[0] + a.dx * CURB * 1.6, P0[1] + a.dz * CURB * 1.6];
+    if (Math.abs(cross) < 0.1) P1 = dot > 0 ? [(P0[0] + P2[0]) / 2, (P0[1] + P2[1]) / 2] : [P0[0] + a.dx * 12.8, P0[1] + a.dz * 12.8];
     else {
       // where the two lane lines meet
-      const t = ((P2[0] - P0[0]) * b.dz - (P2[1] - P0[1]) * b.dx) / cross;
+      const t = ((P2[0] - P0[0]) * b.sdz - (P2[1] - P0[1]) * b.sdx) / cross;
       P1 = [P0[0] + a.dx * t, P0[1] + a.dz * t];
     }
     let len = 0, px = P0[0], pz = P0[1];
@@ -68,13 +76,10 @@ export function createTraffic(city, seed = 1) {
   }
   // the lane a run should use, given the turn at its end (left turns from the inside lane)
   function laneFor(cur, next) {
-    const [na, nb] = cur.dir > 0 ? [cur.e.a, cur.e.b] : [cur.e.b, cur.e.a];
-    const A = city.nodes[na], B = city.nodes[nb];
-    const [nx0, nz0] = next.dir > 0 ? [next.e.ax, next.e.az] : [next.e.bx, next.e.bz];
-    const [nx1, nz1] = next.dir > 0 ? [next.e.bx, next.e.bz] : [next.e.ax, next.e.az];
-    const dx = B.x - A.x, dz = B.z - A.z, ex = nx1 - nx0, ez = nz1 - nz0;
-    const cross = dx * ez - dz * ex;
-    return Math.abs(cross) < 1 ? (R() < 0.5 ? 0 : 1) : cross < 0 ? 0 : 1;
+    const node = cur.dir > 0 ? cur.e.b : cur.e.a;
+    const [ix, iz] = dirFrom(cur.e, node), [ex, ez] = dirFrom(next.e, node);   // (arriving = minus leaving)
+    const cross = -ix * ez + iz * ex;
+    return Math.abs(cross) < 0.15 ? (R() < 0.5 ? 0 : 1) : cross < 0 ? 0 : 1;
   }
 
   function spawn(px, pz, near = false) {
@@ -87,14 +92,14 @@ export function createTraffic(city, seed = 1) {
       const run = runSeg(e, dir, laneFor({ e, dir }, next));
       if (run.len < 30) continue;
       const t = R() * (run.len - 25);   // not right at a junction: it must have room to decide
-      const x = run.x0 + run.dx * t, z = run.z0 + run.dz * t;
+      const sp = runPos(run, t), x = sp.x, z = sp.z;
       const d = Math.hypot(x - px, z - pz);
       if (d < (near ? 60 : 45) || d > 170) continue;
       if (cars.some((c) => Math.hypot(c.x - x, c.z - z) < 9)) continue;
       const v = K.cruise[0] + R() * (K.cruise[1] - K.cruise[0]);
       const c = {
         id: nextId++, kind: k, K, color: COLORS[Math.floor(R() * COLORS.length)],
-        mode: "drive", seg: run, s: t, next, x, z, h: Math.atan2(run.dx, run.dz), v, cruise: v, waitT: 0, stuckT: 0,
+        mode: "drive", seg: run, s: t, next, x, z, h: Math.atan2(sp.dx, sp.dz), v, cruise: v, waitT: 0, stuckT: 0,
         vx: 0, vz: 0, w: 0, stillT: 0, wreckT: 0, dmg: 0, brake: 0, honkT: 0, px: x, pz: z, ph: 0,
       };
       c.ph = c.h;
@@ -119,7 +124,7 @@ export function createTraffic(city, seed = 1) {
   // where a driving car is, on its path, and which way it faces
   function placeOnPath(c) {
     const g = c.seg;
-    if (g.type === "run") { c.x = g.x0 + g.dx * c.s; c.z = g.z0 + g.dz * c.s; c.h = Math.atan2(g.dx, g.dz); }
+    if (g.type === "run") { const q = runPos(g, c.s); c.x = q.x; c.z = q.z; c.h = Math.atan2(q.dx, q.dz); }
     else {
       const t = Math.min(1, c.s / g.len), [x, z] = bez(g.P0, g.P1, g.P2, t), [tx, tz] = bezDir(g.P0, g.P1, g.P2, t);
       c.x = x; c.z = z; c.h = Math.atan2(tx, tz);
@@ -131,7 +136,7 @@ export function createTraffic(city, seed = 1) {
   function canEnter(g, myKind, player) {
     // never into a junction the player is driving through
     const N = city.nodes[g.to];
-    if (player && Math.abs(player.x - N.x) < CURB + 0.5 && Math.abs(player.z - N.z) < CURB + 0.5 && Math.hypot(player.vx, player.vz) > 1) return false;
+    if (player && Math.hypot(player.x - N.x, player.z - N.z) < N.jr + 0.5 && Math.hypot(player.vx, player.vz) > 1) return false;
     const set = inside.get(g.to);
     if (!set || !set.size) return true;
     for (const o of set) {
@@ -146,11 +151,9 @@ export function createTraffic(city, seed = 1) {
   // room on the far side: nobody sitting in the first stretch of the lane we're about to take
   function exitClear(c, player) {
     const ne = c.next, nodeTo = c.seg.to;
-    const [x0, z0] = ne.dir > 0 ? [ne.e.ax, ne.e.az] : [ne.e.bx, ne.e.bz];
     const N = city.nodes[nodeTo];
-    if (Math.hypot(x0 - N.x, z0 - N.z) > 1) return true;
-    const dx = ne.dir > 0 ? (ne.e.bx - ne.e.ax) / ne.e.len : (ne.e.ax - ne.e.bx) / ne.e.len, dz = ne.dir > 0 ? (ne.e.bz - ne.e.az) / ne.e.len : (ne.e.az - ne.e.bz) / ne.e.len;
-    const ex = N.x + dx * (CURB + 4), ez = N.z + dz * (CURB + 4);
+    if ((ne.dir > 0 ? ne.e.a : ne.e.b) !== nodeTo) return true;
+    const d = N.jr + 4, q = pointAt(ne.e, ne.dir > 0 ? d : ne.e.len - d), ex = q.x, ez = q.z;
     for (const o of cars) if (o !== c && Math.hypot(o.x - ex, o.z - ez) < 6 && (o.mode !== "drive" || o.v < 2)) return false;
     return true;
   }
@@ -162,9 +165,8 @@ export function createTraffic(city, seed = 1) {
     if (g.type === "run") {
       const toEnd = g.len - c.s;
       // turn speed coming up (the next turn is known: c.next)
-      const A = city.nodes[g.to], nx = c.next.dir > 0 ? c.next.e.bx - c.next.e.ax : c.next.e.ax - c.next.e.bx, nz = c.next.dir > 0 ? c.next.e.bz - c.next.e.az : c.next.e.az - c.next.e.bz;
-      const turning = Math.abs(g.dx * nz - g.dz * nx) > 1;
-      void A;
+      const [nx, nz] = dirFrom(c.next.e, g.to);
+      const turning = Math.abs(g.dx * nz - g.dz * nx) > 0.2;
       const vTurn = turning ? 6.5 : c.cruise;
       target = Math.min(target, Math.sqrt(vTurn * vTurn + 2 * 3.5 * Math.max(0, toEnd - 1)));
       // the junction: go only if nothing crossing our path is in it and there's room on the far side
@@ -174,7 +176,10 @@ export function createTraffic(city, seed = 1) {
       const decide = (c.v * c.v) / 9 + 7;
       if (toEnd < decide && !c.claim) {
         const myKind = turning ? (g.dx * nz - g.dz * nx < 0 ? "left" : "right") : "straight";
-        const ok = canEnter(g, myKind, player) && exitClear(c, player);
+        // a light: red stops you; yellow too, unless you're too close to stop
+        const light = city.nodes[g.to].signal ? signalState(g.to, approachPhase(g.e), T) : "green";
+        const lightOk = light === "green" || (light === "yellow" && toEnd < (c.v * c.v) / 8 + 2);
+        const ok = lightOk && canEnter(g, myKind, player) && exitClear(c, player);
         // the stop line sits back from the junction so a waiting car's nose stays out of the crossing lanes
         if (!ok) { target = Math.min(target, Math.max(0, (toEnd - 3.2) * 1.3)); c.waitT += DT; }
         else if (toEnd < decide - 1) {
@@ -196,6 +201,15 @@ export function createTraffic(city, seed = 1) {
       if (v < gapV) { gapV = v; playerBlock = isPlayer; }
     };
     for (const o of cars) if (o !== c) check(o.x, o.z, o.mode === "drive" ? o.v : 0, false);
+    // round a bend the straight-ahead check misses the car in front: same street, same way, same
+    // lane, by distance along it
+    if (g.type === "run" && !g.e.straight) {
+      for (const o of cars) {
+        if (o === c || o.seg.type !== "run" || o.seg.e !== g.e || o.seg.dir !== g.dir || o.seg.lane !== g.lane) continue;
+        const ahead = o.seg.base + o.s - (g.base + c.s);
+        if (ahead > 0 && ahead < look + 4) gapV = Math.min(gapV, Math.max(0, ahead - 6.2) * 1.1 + (o.mode === "drive" ? o.v : 0) * 0.9);
+      }
+    }
     // through a curve the straight-ahead check misses the car in front: queue on anyone making the same
     // movement through this junction who's further along it
     if (g.type === "turn" && c.claim) {
@@ -261,16 +275,18 @@ export function createTraffic(city, seed = 1) {
   // back into traffic: onto the nearest lane going the way the car points, merging along a curve
   function rejoin(c) {
     const ne = nearestEdge(city, c.x, c.z, c.h), e = ne.e;
-    const dir = (e.bx - e.ax) * Math.sin(c.h) + (e.bz - e.az) * Math.cos(c.h) >= 0 ? 1 : -1;
+    const dir = ne.dx * Math.sin(c.h) + ne.dz * Math.cos(c.h) >= 0 ? 1 : -1;
     const next = pickNext(e, dir > 0 ? e.b : e.a);
     const run = runSeg(e, dir, 1);
-    const s0 = Math.max(0, Math.min(run.len - 1, (dir > 0 ? ne.t : e.len - ne.t) - CURB + 10));
-    const tx = run.x0 + run.dx * s0, tz = run.z0 + run.dz * s0;
+    const s0 = Math.max(0, Math.min(run.len - 1, (dir > 0 ? ne.t : e.len - ne.t) - run.base + 10));
+    const tp = runPos(run, s0), tx = tp.x, tz = tp.z;
+    // someone already there (often the car it just hit, rejoining too): wait, or they bump forever
+    if (cars.some((o) => o !== c && Math.hypot(o.x - tx, o.z - tz) < 7)) { c.stillT = 0.4; return; }
     const fx = Math.sin(c.h), fz = Math.cos(c.h);
     const d = Math.max(4, Math.hypot(tx - c.x, tz - c.z));
     // a merge curve from where it sits to the lane, then the rest of the run
     const merge = { type: "turn", node: -1, P0: [c.x, c.z], P1: [c.x + fx * d * 0.5, c.z + fz * d * 0.5], P2: [tx, tz], len: d * 1.15, kind: "merge", fromDir: [fx, fz] };
-    const rest = { ...run, x0: tx, z0: tz, len: run.len - s0 };
+    const rest = { ...run, base: run.base + s0, x0: tx, z0: tz, sdx: tp.dx, sdz: tp.dz, len: run.len - s0 };
     c.mode = "drive"; c.seg = merge; c.after = rest; c.next = next; c.s = 0; c.v = 2; c.stillT = 0;
   }
 
@@ -315,8 +331,10 @@ export function createTraffic(city, seed = 1) {
   };
 
   /** One tick. player: the city car (its velocity is changed by impacts); p: its physics params. */
+  let T = 0;   // traffic-light clock
   function step(player, p, density) {
     events.length = 0;
+    T += DT;
     // keep the traffic around the player: top up, and recycle cars that drift far away or time out as wrecks
     for (let i = cars.length - 1; i >= 0; i--) {
       const c = cars[i];
@@ -367,5 +385,5 @@ export function createTraffic(city, seed = 1) {
     for (let k = 0; k < density * 3 && cars.length < density; k++) spawn(player.x, player.z);
   }
 
-  return { cars, events, step, reset, KINDS };
+  return { cars, events, step, reset, KINDS, get time() { return T; } };
 }

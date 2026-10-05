@@ -51,7 +51,8 @@ export function dayPlan(city, seed, day) {
   const restEdges = new Set(city.restaurants.map((r) => r.edge));
   if (conds.includes("roadworks")) {
     // 2-3 street segments, never a restaurant's, never on the district's edge (keeps it connected)
-    const cand = city.edges.filter((e) => !restEdges.has(e) && Math.min(e.ax, e.bx, e.az, e.bz) > city.inner.x0 + LINE && Math.max(e.ax, e.bx, e.az, e.bz) < city.inner.x1 - LINE);
+    // (grid streets only: the barricades are boxes across an axis-aligned street)
+    const cand = city.edges.filter((e) => e.straight && e.name !== "Broadway" && !restEdges.has(e) && Math.min(e.ax, e.bx, e.az, e.bz) > city.inner.x0 + LINE && Math.max(e.ax, e.bx, e.az, e.bz) < city.inner.x1 - LINE);
     const k = 2 + (R() < 0.5 ? 1 : 0);
     while (plan.closed.length < k && cand.length) plan.closed.push(cand.splice(Math.floor(R() * cand.length), 1)[0]);
   }

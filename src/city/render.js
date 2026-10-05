@@ -4,7 +4,9 @@
 
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { X, NB, CURB, LINE, PITCH } from "./map.js";
+import { X, NB, CURB, LINE, PITCH, BEND_R } from "./map.js";
+import { pointAt } from "./edges.js";
+import { signalState } from "./signals.js";
 import { loadCarModels, playerFromModel, partsFromModel, gameMaterial } from "./models.js";
 import { decorate, tickMods } from "./carmods.js";
 import { dist } from "./units.js";
@@ -29,6 +31,44 @@ function box(x0, y0, z0, x1, y1, z1, hex, top = hex) {
   return g;
 }
 const flat = (x0, z0, x1, z1, y, hex) => box(x0, y - 0.01, z0, x1, y, z1, hex);
+// triangles for polygons (Broadway's wedges, the bends): each wound to face `want`
+function triGeo(tris, hex) {
+  const pos = [];
+  for (const [a, b, c, want] of tris) {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+    const ok = n[0] * want[0] + n[1] * want[1] + n[2] * want[2] >= 0;
+    pos.push(...a, ...(ok ? b : c), ...(ok ? c : b));
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return colored(g, hex);
+}
+const UP = [0, 1, 0];
+/** A flat convex polygon at height y. */
+const flatPoly = (poly, y, hex) => triGeo(poly.slice(1, -1).map((p, i) => [[poly[0][0], y, poly[0][1]], [p[0], y, p[1]], [poly[i + 2][0], y, poly[i + 2][1]], UP]), hex);
+/** A convex polygon extruded from y0 to y1: walls and a top. */
+function prism(poly, y0, y1, wallHex, topHex = wallHex) {
+  const cx = poly.reduce((a, p) => a + p[0], 0) / poly.length, cz = poly.reduce((a, p) => a + p[1], 0) / poly.length, walls = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length], out = [(p[0] + q[0]) / 2 - cx, 0, (p[1] + q[1]) / 2 - cz];
+    walls.push([[p[0], y0, p[1]], [q[0], y0, q[1]], [q[0], y1, q[1]], out], [[p[0], y0, p[1]], [q[0], y1, q[1]], [p[0], y1, p[1]], out]);
+  }
+  return [triGeo(walls, wallHex), flatPoly(poly, y1, topHex)];
+}
+/** A kerb lip along the polygon's edges, just inside it. */
+function kerbs(poly, hex) {
+  const out = [], cx = poly.reduce((a, p) => a + p[0], 0) / poly.length, cz = poly.reduce((a, p) => a + p[1], 0) / poly.length;
+  for (let i = 0; i < poly.length; i++) {
+    const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length], L = Math.hypot(bx - ax, bz - az);
+    if (L < 0.2) continue;
+    let nx = -(bz - az) / L, nz = (bx - ax) / L;
+    if (nx * ((ax + bx) / 2 - cx) + nz * ((az + bz) / 2 - cz) > 0) { nx = -nx; nz = -nz; }   // inward
+    out.push(colored(new THREE.BoxGeometry(L, 0.14, 0.3).rotateY(Math.atan2(-(bz - az), bx - ax)).translate((ax + bx) / 2 + nx * 0.15, 0.07, (az + bz) / 2 + nz * 0.15), hex));
+  }
+  return out;
+}
 function colored(g, hex) {
   g = g.index ? g.toNonIndexed() : g;
   const n = g.attributes.position.count, col = new Float32Array(n * 3);
@@ -43,17 +83,24 @@ function buildStatic(city, night) {
   const P = [];
   const b = city.bounds;
   P.push(flat(b.x0, b.z0, b.x1, b.z1, 0, C.asphalt));
-  // sidewalks: every non-park block gets a slab to the curb with a raised lip
-  for (let r = 0; r < NB; r++) for (let c = 0; c < NB; c++) {
-    const x0 = X(c) + CURB, x1 = X(c + 1) - CURB, z0 = X(r) + CURB, z1 = X(r + 1) - CURB;
-    if (city.parks.some((p) => p.r === r && p.c === c)) continue;
-    P.push(flat(x0, z0, x1, z1, 0.03, C.sidewalk));
-    for (const [a0, b0, a1, b1] of [[x0, z0, x1, z0 + 0.3], [x0, z1 - 0.3, x1, z1], [x0, z0, x0 + 0.3, z1], [x1 - 0.3, z0, x1, z1]]) P.push(box(a0, 0, b0, a1, 0.14, b1, C.curb));
-  }
-  // the outer sidewalk in front of the edge buildings
+  // sidewalks: every non-park block (or wedge of one) gets a slab to the curb with a raised lip
+  for (const q of city.walks) { P.push(flatPoly(q, 0.03, C.sidewalk)); P.push(...kerbs(q, C.curb)); }
+  // the outer sidewalk in front of the edge buildings (stopping where a bend swings away from it)
   const E0 = city.inner.x0, E1 = city.inner.x1;
   const SW = LINE - CURB;
-  for (const [x0, z0, x1, z1] of [[E0, E0, E1, E0 + SW], [E0, E1 - SW, E1, E1], [E0, E0, E0 + SW, E1], [E1 - SW, E0, E1, E1]]) P.push(flat(x0, z0, x1, z1, 0.03, C.sidewalk));
+  const [nw, se] = city.lawns;
+  for (const [x0, z0, x1, z1] of [[Math.max(E0, nw.cx), E0, E1, E0 + SW], [E0, E1 - SW, Math.min(E1, se.cx), E1], [E0, Math.max(E0, nw.cz), E0 + SW, E1], [E1 - SW, E0, E1, Math.min(E1, se.cz)]]) P.push(flat(x0, z0, x1, z1, 0.03, C.sidewalk));
+  // outside each bend: its outer sidewalk, a kerb, and the lawn where the corner used to be
+  for (const l of city.lawns) {
+    const arc = (r) => Array.from({ length: 25 }, (_, k) => { const th = l.th0 + ((l.th1 - l.th0) * k) / 24; return [l.cx + r * Math.cos(th), l.cz + r * Math.sin(th)]; });
+    const inner = arc(BEND_R + CURB), outer = arc(BEND_R + LINE);
+    for (let k = 0; k < 24; k++) {
+      P.push(flatPoly([inner[k], outer[k], outer[k + 1], inner[k + 1]], 0.03, C.sidewalk));
+      P.push(flatPoly([l.K, outer[k], outer[k + 1]], 0.04, C.grass));
+      const [ax, az] = inner[k], [bx, bz] = inner[k + 1], L = Math.hypot(bx - ax, bz - az);
+      P.push(colored(new THREE.BoxGeometry(L + 0.05, 0.14, 0.3).rotateY(Math.atan2(-(bz - az), bx - ax)).translate((ax + bx) / 2, 0.07, (az + bz) / 2), C.curb));
+    }
+  }
   for (const l of city.lots) {
     P.push(flat(l.x0, l.z0, l.x1, l.z1, 0.045, C.lot));
     for (const car of city.parkedCars) P.push(flat(car.x0 - 0.35, car.z0 - 0.2, car.x0 - 0.2, car.z1 + 0.2, 0.05, C.white));
@@ -76,17 +123,20 @@ function buildStatic(city, night) {
     P.push(colored(new THREE.CylinderGeometry(0.15, 0.15, 1.4, 6).translate(n.x, 3.4, n.z), C.water));
   }
   // lane markings: a dashed centre line, stop lines and crosswalks at every live intersection
+  // (along each street's shape: bends curve, Broadway's junctions are bigger)
   for (const e of city.edges) {
-    const dx = (e.bx - e.ax) / e.len, dz = (e.bz - e.az) / e.len, h = Math.atan2(dx, dz);
-    for (let s = LINE + 2; s < e.len - LINE - 2; s += 6) {
-      P.push(colored(new THREE.BoxGeometry(0.18, 0.01, 3).rotateY(h).translate(e.ax + dx * (s + 1.5), 0.02, e.az + dz * (s + 1.5)), C.dash));
+    const ja = city.nodes[e.a].jr, jb = city.nodes[e.b].jr;
+    for (let s = ja + 8; s < e.len - jb - 8; s += 6) {
+      const q = pointAt(e, s + 1.5), h = Math.atan2(q.dx, q.dz);
+      P.push(colored(new THREE.BoxGeometry(0.18, 0.01, 3).rotateY(h).translate(q.x, 0.02, q.z), C.dash));
       // white lane lines either side: more stripes flicking past
-      for (const w of [-CURB / 2, CURB / 2]) P.push(colored(new THREE.BoxGeometry(0.14, 0.01, 2).rotateY(h).translate(e.ax + dx * (s + 1) - dz * w, 0.02, e.az + dz * (s + 1) + dx * w), C.white));
+      for (const w of [-CURB / 2, CURB / 2]) P.push(colored(new THREE.BoxGeometry(0.14, 0.01, 2).rotateY(h).translate(q.x - q.dz * w, 0.02, q.z + q.dx * w), C.white));
     }
-    for (const [s, sgn] of [[LINE + 0.5, 1], [e.len - LINE - 0.5, -1]]) {
+    for (const [s, sgn] of [[ja + 6.5, 1], [e.len - jb - 6.5, -1]]) {
       // zebra stripes across the road just outside the intersection
+      const q = pointAt(e, s - sgn * 0.2), h = Math.atan2(q.dx, q.dz);
       for (let w = -CURB + 0.6; w < CURB - 0.4; w += 1.2) {
-        P.push(colored(new THREE.BoxGeometry(0.6, 0.01, 2.4).rotateY(h).translate(e.ax + dx * (s - sgn * 0.2) - dz * w, 0.02, e.az + dz * (s - sgn * 0.2) + dx * w), C.white));
+        P.push(colored(new THREE.BoxGeometry(0.6, 0.01, 2.4).rotateY(h).translate(q.x - q.dz * w, 0.02, q.z + q.dx * w), C.white));
       }
     }
   }
@@ -94,6 +144,11 @@ function buildStatic(city, night) {
   let seed = 11;
   const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   for (const bd of city.buildings) {
+    if (bd.poly) {
+      // a wedge (Broadway's flatirons) or a rounded corner: walls, a roof cap
+      P.push(...prism(bd.poly, 0, bd.h, bd.color, C.roof), ...prism(bd.poly, bd.h, bd.h + 0.5, bd.color, C.roof));
+      continue;
+    }
     P.push(box(bd.x0, 0, bd.z0, bd.x1, bd.h, bd.z1, bd.color, C.roof));
     // by day, a darker band per floor; at night the windows are their own lit mesh (buildWindows)
     if (!night) for (let f = 0; f < bd.floors; f++) {
@@ -142,7 +197,17 @@ function buildWindows(city) {
   for (const bd of city.buildings) {
     const o = 0.07;
     // each face, walked so its front faces outward
-    const faces = [[bd.x0, bd.z1 + o, bd.x1, bd.z1 + o], [bd.x1 + o, bd.z1, bd.x1 + o, bd.z0], [bd.x1, bd.z0 - o, bd.x0, bd.z0 - o], [bd.x0 - o, bd.z0, bd.x0 - o, bd.z1]];
+    let faces = [[bd.x0, bd.z1 + o, bd.x1, bd.z1 + o], [bd.x1 + o, bd.z1, bd.x1 + o, bd.z0], [bd.x1, bd.z0 - o, bd.x0, bd.z0 - o], [bd.x0 - o, bd.z0, bd.x0 - o, bd.z1]];
+    if (bd.poly) {
+      // every side of the polygon, nudged outward
+      const cx = (bd.x0 + bd.x1) / 2, cz = (bd.z0 + bd.z1) / 2;
+      faces = bd.poly.map((p, i) => {
+        const q = bd.poly[(i + 1) % bd.poly.length], L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+        let nx = -(q[1] - p[1]) / L, nz = (q[0] - p[0]) / L;
+        if (nx * ((p[0] + q[0]) / 2 - cx) + nz * ((p[1] + q[1]) / 2 - cz) < 0) { nx = -nx; nz = -nz; }
+        return [p[0] + nx * o, p[1] + nz * o, q[0] + nx * o, q[1] + nz * o];
+      }).filter(([ax, az, bx, bz]) => Math.hypot(bx - ax, bz - az) > 2);
+    }
     const busy = R();   // some buildings are mostly lit, some mostly dark
     for (let f = 0; f < bd.floors; f++) {
       const y0 = f * 3.2 + 1.0, y1 = y0 + 1.3;
@@ -159,7 +224,8 @@ function buildWindows(city) {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true }));
+  // (both sides: the wedges' faces are wound either way)
+  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
 }
 
 // a soft round glow for light pools, headlights and underglow
@@ -324,14 +390,51 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
   const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), e3 = new THREE.Euler(), v3 = new THREE.Vector3(), s3 = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
   city.poles.forEach((p, i) => {
     // the arm reaches over the road: face the nearest street centreline
-    const gx = Math.round((p.x - X(0)) / PITCH) * PITCH + X(0), gz = Math.round((p.z - X(0)) / PITCH) * PITCH + X(0);
-    p.yaw = Math.abs(p.x - gx) < Math.abs(p.z - gz) ? (p.x > gx ? -Math.PI / 2 : Math.PI / 2) : (p.z > gz ? Math.PI : 0);
+    // (the map says which way: Broadway and the bends aren't on the grid)
+    if (p.yaw === undefined) {
+      const gx = Math.round((p.x - X(0)) / PITCH) * PITCH + X(0), gz = Math.round((p.z - X(0)) / PITCH) * PITCH + X(0);
+      p.yaw = Math.abs(p.x - gx) < Math.abs(p.z - gz) ? (p.x > gx ? -Math.PI / 2 : Math.PI / 2) : (p.z > gz ? Math.PI : 0);
+    }
     p.fall = 0;
     m4.compose(v3.set(p.x, 0, p.z), q4.setFromEuler(e3.set(0, p.yaw, 0)), s3);
     poles.setMatrixAt(i, m4);
   });
   scene.add(poles);
   const falling = new Set();
+  // traffic lights at Broadway's junctions: a post and a head per approach; three lamps each,
+  // recoloured every frame from the traffic's clock (signals.js)
+  const SIGH = 4.6;
+  {
+    const parts = [];
+    for (const sg of city.signals) {
+      const fx = Math.sin(sg.h), fz = Math.cos(sg.h);
+      parts.push(colored(new THREE.CylinderGeometry(0.09, 0.12, SIGH, 6).translate(sg.x, SIGH / 2, sg.z), C.pole));
+      parts.push(colored(new THREE.BoxGeometry(0.6, 1.6, 0.4).rotateY(sg.h).translate(sg.x + fx * 0.1, SIGH + 0.4, sg.z + fz * 0.1), 0x1c1f24));
+    }
+    if (parts.length) scene.add(new THREE.Mesh(mergeGeometries(parts), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
+  }
+  const NL = Math.max(1, city.signals.length * 3);
+  const sigLamps = new THREE.InstancedMesh(new THREE.SphereGeometry(0.19, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), NL);
+  // a soft halo round each lit lamp (black = off: additive, so it vanishes)
+  const sigGlow = new THREE.InstancedMesh(new THREE.SphereGeometry(0.75, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false }), NL);
+  sigLamps.count = sigGlow.count = city.signals.length * 3;
+  city.signals.forEach((sg, i) => {
+    const fx = Math.sin(sg.h), fz = Math.cos(sg.h);
+    for (let k = 0; k < 3; k++) { m4.makeTranslation(sg.x + fx * 0.36, SIGH + 0.92 - k * 0.5, sg.z + fz * 0.36); sigLamps.setMatrixAt(i * 3 + k, m4); sigGlow.setMatrixAt(i * 3 + k, m4); }
+  });
+  sigLamps.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(NL * 3), 3);
+  sigGlow.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(NL * 3), 3);
+  scene.add(sigLamps, sigGlow);
+  const BLACK = new THREE.Color(0);
+  const LAMP_ON = [new THREE.Color(0xff2a1a), new THREE.Color(0xffc21a), new THREE.Color(0x2aff7a)], LAMP_OFF = [new THREE.Color(0x2a0c0a), new THREE.Color(0x2a220a), new THREE.Color(0x0a2a14)];
+  let sigKey = "";
+  function updateSignals(t) {
+    const states = city.signals.map((sg) => signalState(sg.node, sg.phase, t)), key = states.join();
+    if (key === sigKey) return;
+    sigKey = key;
+    states.forEach((st, i) => { const on = st === "red" ? 0 : st === "yellow" ? 1 : 2; for (let k = 0; k < 3; k++) { sigLamps.setColorAt(i * 3 + k, k === on ? LAMP_ON[k] : LAMP_OFF[k]); sigGlow.setColorAt(i * 3 + k, k === on ? LAMP_ON[k] : BLACK); } });
+    sigLamps.instanceColor.needsUpdate = sigGlow.instanceColor.needsUpdate = true;
+  }
   // at night: glowing lamp heads, and a pool of light on the road under each
   let heads = null, pools = null;
   if (night) {
@@ -888,7 +991,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     }
     for (const m of Object.values(tparts)) m.visible = false;
   }
-  function drawTraffic(cars, alpha) {
+  function drawTraffic(cars, alpha, t = 0) {
+    updateSignals(t);
     wreckSmoke(cars);
     if (tmodel) return drawTrafficModels(cars, alpha);
     let nc = 0, nv = 0, nl = 0;
