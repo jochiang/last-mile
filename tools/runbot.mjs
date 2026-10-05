@@ -1,10 +1,13 @@
 // Plays whole runs: shifts with the GPS-following courier, then the garage with a simple policy
 // (repair to keep the car healthy, buy the best-value mod it can afford). For balancing the
 // economy: how many days does "just follow the GPS" last? usage: node tools/runbot.mjs [runs] [--why]
+// [--car id] [--no-traffic] [--simple]. Smart (default): greedy orders, overtaking, pays the car off
+// as soon as it can, repairs fully when it's cheap, keeps half the next bill in reserve. --simple:
+// the old cautious baseline (nearest orders, one lane, repair to 85%, spends everything).
 import { buildCity } from "../src/city/map.js";
 import { makeCityCar } from "../src/city/world.js";
 import { makeShift, rating } from "../src/city/shift.js";
-import { makeRun, effects, settleShift, repairCost, repair, buy, modById, billFor } from "../src/city/run.js";
+import { makeRun, effects, settleShift, repairCost, repair, buy, modById, billFor, payoffCost, payOff, termOf } from "../src/city/run.js";
 import { driveShift } from "./driver.mjs";
 import { dayPlan, applyPlan } from "../src/city/conditions.js";
 import { createTraffic } from "../src/city/traffic.js";
@@ -18,7 +21,8 @@ const PRIORITY = ["loyalty", "bundle", "apppremium", "dice", "freshener", "cups"
 
 const days = [];
 const carId = args.includes("--car") ? args[args.indexOf("--car") + 1] : "liftback";
-const noTraffic = args.includes("--no-traffic");
+const noTraffic = args.includes("--no-traffic"), simple = args.includes("--simple");
+const outcomes = {};
 for (let n = 0; n < runs; n++) {
   const run = makeRun(1000 + n * 37, carId);
   while (!run.over && run.day <= 30) {
@@ -31,16 +35,27 @@ for (let n = 0; n < runs; n++) {
     const sh = makeShift(city, run.seed + run.day, { ratings: run.ratings, fx, plan });
     const traffic = noTraffic ? null : createTraffic(city, run.seed + run.day);
     traffic?.reset(car, plan.traffic);
-    const drove = driveShift(city, car, sh, p, null, traffic);
+    const drove = driveShift(city, car, sh, p, null, traffic, null, { simple });
     const d = settleShift(run, sh, car);
-    if (why) console.log(`  day ${d.day} [${plan.conds.join("+") || "-"}, ${plan.traffic} cars]: $${d.earned.toFixed(0)} (${d.jobs} jobs, fines $${sh.fines}), bill $${d.bill}, cash $${run.cash.toFixed(0)}, car ${(run.cond * 100).toFixed(0)}%, rating ${(run.ratings.reduce((a, b) => a + b, 0) / run.ratings.length).toFixed(2)}, walls ${drove.walls}${run.over ? ` -> ${run.over}` : ""}`);
+    if (why) console.log(`  day ${d.day} [${plan.conds.join("+") || "-"}, ${plan.traffic} cars]: $${d.earned.toFixed(0)} (${d.jobs} jobs, fines $${sh.fines}), bill $${d.bill}, cash $${run.cash.toFixed(0)}, car ${(run.cond * 100).toFixed(0)}%, rating ${(run.ratings.reduce((a, b) => a + b, 0) / run.ratings.length).toFixed(2)}, walls ${drove.walls}, passes ${drove.passes}${run.over ? ` -> ${run.over}` : ""}`);
     if (run.over) break;
-    // garage: repair to 85% if it's cheap enough, then buy by priority
-    if (run.cond < 0.85 && repairCost(run, 0.85) < run.cash * 0.6) repair(run, 0.85);
-    for (const id of PRIORITY) if (run.offers.includes(id) && modById[id].price <= run.cash) buy(run, id);
+    if (simple) {
+      // garage: repair to 85% if it's cheap enough, then buy by priority
+      if (run.cond < 0.85 && repairCost(run, 0.85) < run.cash * 0.6) repair(run, 0.85);
+      for (const id of PRIORITY) if (run.offers.includes(id) && modById[id].price <= run.cash) buy(run, id);
+    } else {
+      // pay it off the moment it can (a win); else repair (a beaten car loses power), then mods,
+      // keeping half the next bill back
+      if (payOff(run)) { if (why) console.log(`    paid off early before day ${run.day} ($${payoffCost(run)})`); break; }
+      if (run.cond < 0.95 && repairCost(run, 1) < run.cash * 0.5) repair(run, 1);
+      else if (run.cond < 0.7) repair(run, Math.min(1, run.cond + Math.floor((run.cash * 0.5) / (repairCost(run, 1) / (1 - run.cond)) * 100) / 100));
+      const reserve = billFor(run, run.day) * 0.5;
+      for (const id of PRIORITY) if (run.offers.includes(id) && modById[id].price <= run.cash - reserve) buy(run, id);
+    }
     if (why) console.log(`    garage: car ${(run.cond * 100).toFixed(0)}%, mods [${run.mods.join(", ")}], cash $${run.cash.toFixed(0)}, next bill $${billFor(run, run.day)}`);
   }
   days.push(run.day);
-  console.log(`run ${n + 1}: ${run.over || "cap"} on day ${run.day}, earned $${run.earned.toFixed(0)}, mods ${run.mods.length}`);
+  outcomes[run.over || "cap"] = (outcomes[run.over || "cap"] || 0) + 1;
+  console.log(`run ${n + 1}: ${run.over || "cap"} on day ${run.day}/${termOf(run)}, earned $${run.earned.toFixed(0)}, mods ${run.mods.length}`);
 }
-console.log(`days survived: ${days.join(", ")} (mean ${(days.reduce((a, b) => a + b, 0) / days.length).toFixed(1)})`);
+console.log(`days survived: ${days.join(", ")} (mean ${(days.reduce((a, b) => a + b, 0) / days.length).toFixed(1)}) · ${JSON.stringify(outcomes)}`);
