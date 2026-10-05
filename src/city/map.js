@@ -147,7 +147,7 @@ export function buildCity(seed = 7) {
       // cut to the block's shape: a wedge or a rounded corner (a flatiron, at the sharp end)
       const poly = clipAll(rectPoly(x0, z0, x1, z1), part, LINE);
       const area = poly.length >= 3 ? polyArea(poly) : 0;
-      if (area < 30) continue;
+      if (area < 22) continue;
       if (poly.length === 4 && Math.abs(area - (x1 - x0) * (z1 - z0)) < 0.5) { out = solid(x0, z0, x1, z1, { kind: "building", h: floors * 3.2, floors, color }); buildings.push(out); continue; }
       const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
       out = { x0: Math.min(...xs), z0: Math.min(...zs), x1: Math.max(...xs), z1: Math.max(...zs), poly, kind: "building", h: floors * 3.2, floors, color };
@@ -178,7 +178,12 @@ export function buildCity(seed = 7) {
     curParts = blockParts(r, c);
     const bx0 = X(c), bx1 = X(c + 1), bz0 = X(r), bz1 = X(r + 1);
     const ix0 = bx0 + LINE, ix1 = bx1 - LINE, iz0 = bz0 + LINE, iz1 = bz1 - LINE, mx = (ix0 + ix1) / 2, mz = (iz0 + iz1) / 2;
-    if (t === "B") {
+    if (t === "B" && r + c === NB - 1) {
+      // a block Broadway cuts: a 4x4 grid of small buildings, clipped to the two wedges, so they're
+      // built up to the diagonal (big rectangles left mostly empty plazas)
+      const n = 4, w = (ix1 - ix0) / n;
+      for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) building(ix0 + a * w, iz0 + b * w, ix0 + (a + 1) * w, iz0 + (b + 1) * w);
+    } else if (t === "B") {
       fill(ix0, iz0, ix1, mz); fill(ix0, mz, ix1, iz1);
     } else if (t === "|" || t === "-") {
       const W = 3.5;   // half the alley's width
