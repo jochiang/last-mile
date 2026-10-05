@@ -84,6 +84,7 @@ def prism(name, profile, width, material, taper_from=None, taper=1.0, bevel=0.06
         for v in L + R:
             if v.co.z > taper_from + 1e-4:
                 v.co.x = cx + (v.co.x - cx) * taper
+    bm.normal_update()
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     o = _obj(name, bm, material, parent)
     if bevel:
@@ -98,6 +99,11 @@ def block(name, f0, f1, h0, h1, x0, x1, material, bevel=0.0, parent=None):
     bmesh.ops.create_cube(bm, size=1.0)
     for v in bm.verts:
         v.co = Vector((x0 + (v.co.x + 0.5) * (x1 - x0), -(f0 + (v.co.y + 0.5) * (f1 - f0)), h0 + (v.co.z + 0.5) * (h1 - h0)))
+    # car space mirrors y (y = -f), which turns the cube inside out: point its faces outward again
+    # (Cycles previews render both sides so they hid it; the game culls back faces, so these boxes
+    # showed their insides: user, 2026-10-05)
+    bm.normal_update()   # the stored normals are the unmirrored cube's: refresh before re-orienting
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     o = _obj(name, bm, material, parent)
     if bevel:
         m = o.modifiers.new("chamfer", "BEVEL"); m.width = bevel; m.segments = 1
