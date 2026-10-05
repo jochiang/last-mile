@@ -378,7 +378,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     scene.add(g);
     return g;
   }
-  const pickBeacons = [beacon(0xffa31a), beacon(0xffa31a), beacon(0xffa31a)], dropBeacon = beacon(0x3dff7a);
+  const pickBeacons = [beacon(0xffa31a), beacon(0xffa31a), beacon(0xffa31a), beacon(0xffa31a)], dropBeacons = [beacon(0x3dff7a), beacon(0xc58cff)];
   // a floating tag over each offer: what it is, what it pays, how far it goes
   const tags = pickBeacons.map((b) => {
     const cv = document.createElement("canvas"); cv.width = 256; cv.height = 96;
@@ -388,17 +388,41 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     b.add(sp);
     return { cv, sp };
   });
+  // drop-off tags: the number (its beacon colour), what it is, and its clock, redrawn once a second
+  const dropTags = dropBeacons.map((b, i) => {
+    const cv = document.createElement("canvas"); cv.width = 192; cv.height = 72;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, fog: false, sizeAttenuation: false }));
+    sp.scale.set(0.15, 0.056, 1); sp.position.y = 8; sp.renderOrder = 5; b.add(sp);
+    return { cv, sp, key: "" };
+  });
+  function updateDropTags(dp) {
+    dropTags.forEach((t, i) => {
+      const d = dp[i]; if (!d) return;
+      const secs = Math.ceil(d.left), key = `${secs}|${d.kind}`;
+      if (key === t.key) return;
+      t.key = key;
+      const g = t.cv.getContext("2d");
+      g.clearRect(0, 0, 192, 72);
+      g.fillStyle = "rgba(16,21,28,.85)"; g.beginPath(); g.roundRect(4, 4, 184, 64, 14); g.fill();
+      g.fillStyle = i ? "#c58cff" : "#3dff7a"; g.beginPath(); g.arc(36, 36, 20, 0, 7); g.fill();
+      g.fillStyle = "#10151c"; g.font = "900 26px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(String(i + 1), 36, 38);
+      g.fillStyle = d.left < 0 ? "#ff7a7a" : d.left < 15 ? "#ffd27a" : "#fff"; g.font = "800 30px system-ui, sans-serif";
+      const m = Math.floor(Math.abs(d.left) / 60), ss = String(Math.floor(Math.abs(d.left) % 60)).padStart(2, "0");
+      g.fillText(`${d.left < 0 ? "-" : ""}${m}:${ss}`, 120, 38);
+      t.sp.material.map.needsUpdate = true;
+    });
+  }
   function setOffers(offers) {
     pickBeacons.forEach((b, i) => {
       const of = offers[i], t = tags[i];
-      b.userData.surge = !!(of && of.surge);
+      b.userData.surge = !!(of && of.surge); b.userData.premium = !!(of && of.premium);
       if (!of) return;
       const g = t.cv.getContext("2d");
       g.clearRect(0, 0, 256, 96);
-      g.fillStyle = of.surge ? "rgba(120,20,95,.85)" : "rgba(16,21,28,.82)";
+      g.fillStyle = of.premium ? "rgba(120,92,10,.88)" : of.surge ? "rgba(120,20,95,.85)" : "rgba(16,21,28,.82)";
       g.beginPath(); g.roundRect(4, 4, 248, 88, 16); g.fill();
       g.fillStyle = "#fff"; g.font = "800 30px system-ui, sans-serif"; g.textAlign = "center";
-      g.fillText(`${{ food: "🍕", drink: "🥤", cake: "🎂" }[of.kind]} $${of.est.toFixed(0)}${of.surge ? " SURGE" : ""}`, 128, 42);
+      g.fillText(`${{ food: "🍕", drink: "🥤", cake: "🎂", catering: "🍱", lunch: "🥪" }[of.kind] || "📦"}${of.stacked ? "×2" : ""} $${of.est.toFixed(0)}${of.premium ? " PREMIUM" : of.surge ? " SURGE" : ""}`, 128, 42);
       g.font = "600 22px system-ui, sans-serif"; g.fillStyle = "#cfe0ff";
       g.fillText(`${of.rest.sign} · ${dist(of.dist)}`, 128, 76);
       t.sp.material.map.needsUpdate = true;
@@ -634,12 +658,13 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
 
     if (glow.visible) glow.material.opacity = 1;
     // beacons
-    const pk = view.pickups || [];
-    for (const [b, p] of [[pickBeacons[0], pk[0]], [pickBeacons[1], pk[1]], [pickBeacons[2], pk[2]], [dropBeacon, view.dropoff]]) {
+    const pk = view.pickups || [], dp = view.dropoffs || [];
+    updateDropTags(dp, t);
+    for (const [b, p] of [...pickBeacons.map((b, i) => [b, pk[i]]), ...dropBeacons.map((b, i) => [b, dp[i]])]) {
       b.visible = !!p;
       if (!p) continue;
       b.position.set(p.x, 0, p.z);
-      if (b !== dropBeacon) { const hex = b.userData.surge ? 0xff3bd0 : 0xffa31a; b.userData.col.material.color.setHex(hex); b.userData.ring.material.color.setHex(hex); b.userData.fill.material.color.setHex(hex); }
+      if (!dropBeacons.includes(b)) { const hex = b.userData.premium ? 0xffd23a : b.userData.surge ? 0xff3bd0 : 0xffa31a; b.userData.col.material.color.setHex(hex); b.userData.ring.material.color.setHex(hex); b.userData.fill.material.color.setHex(hex); }
       const pulse = 0.5 + 0.5 * Math.sin(t * 5);
       b.userData.ring.scale.setScalar(1 + pulse * 0.06);
       b.userData.fill.material.opacity = p.inZone ? 0.45 : 0.15 + pulse * 0.08;

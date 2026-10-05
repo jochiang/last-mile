@@ -14,7 +14,8 @@ export function driveShift(city, car, sh, p, log = null, traffic = null, stats =
     }
     // no order yet: take the nearest offer by street distance (a simple policy; a player can do better)
     let o = sh.order, target;
-    if (o) target = o.cust;
+    // carrying: the nearest drop-off still to do
+    if (o) { const ds = o.drops.filter((d) => !d.done); o = ds.reduce((b, d) => (Math.hypot(d.cust.x - car.x, d.cust.z - car.z) < Math.hypot(b.cust.x - car.x, b.cust.z - car.z) ? d : b)); target = o.cust; o.phase = "dropoff"; }
     else {
       if (!sh.offers.length) continue;
       if (!chosen || !sh.offers.includes(chosen)) chosen = sh.offers.reduce((b, of) => (route(city, car.x, car.z, car.h, of.rest).length < route(city, car.x, car.z, car.h, b.rest).length ? of : b));

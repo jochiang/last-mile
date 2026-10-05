@@ -30,6 +30,14 @@
   #offers .offer b { color: #b7ffcf; }
   #offers .offer i { font-style: normal; font-size: 10px; color: #16120a; background: #ff6bd6; border-radius: 5px; padding: 0 4px; }
   #offers .offer.here { color: #ffd27a; }
+  #offers .offer i.prem { background: #ffd23a; }
+  #drops .drop { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; margin: 2px 0; }
+  #drops .n { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; color: #10151c; }
+  #drops .n0 { background: #3dff7a; } #drops .n1 { background: #c58cff; }
+  #drops .t { font-size: 18px; font-weight: 900; } #drops .t.warn { color: #ffd27a; } #drops .t.late { color: #ff7a7a; }
+  #drops .tip { color: #b7ffcf; font-size: 12px; }
+  #drops .sp { grid-column: 2 / -1; height: 5px; border-radius: 3px; background: rgba(255,255,255,.15); overflow: hidden; }
+  #drops .sp span { display: block; height: 100%; background: #7fd8ff; }
   #stopping { height: 4px; margin-top: 5px; border-radius: 2px; background: rgba(255,255,255,.15); overflow: hidden; }
   #stopping span { display: block; height: 100%; width: 0; background: #fff; }
 
@@ -133,6 +141,7 @@
   .shop { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0; }
   .mod { border-radius: 12px; padding: 8px; background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.15); display: flex; flex-direction: column; gap: 4px; }
   .mod .tag { font-size: 10px; letter-spacing: .08em; opacity: .7; }
+  .mod .tag.biz { color: #ffd23a; }
   .mod .tag.perf { color: #7fd8ff; } .mod .tag.cargo { color: #b7ffcf; } .mod .tag.silly { color: #ff9be0; }
   .mod b { font-size: 14px; }
   .mod .d { font-size: 11px; font-weight: 500; opacity: .85; flex: 1; }
@@ -162,10 +171,7 @@
   <div class="phase" id="ophase">PICK UP</div>
   <div class="where" id="owhere">–</div>
   <div id="offers"></div>
-  <div id="orderbody">
-  <div class="row"><span id="otime">0:00</span><span id="otip"></span></div>
-  <div id="spill"><span>🥤</span><div class="bar"><span></span></div></div>
-  </div>
+  <div id="orderbody"><div id="drops"></div></div>
   <div id="stopping"><span></span></div>
 </div>
 <div class="hud" id="shiftbar"><div id="clock">6:00</div><div id="money">$0.00</div><div id="rating">★ 4.80</div><div id="conds"></div></div>

@@ -14,7 +14,7 @@ const runs = +args.find((a) => /^\d+$/.test(a)) || 3;
 const why = args.includes("--why");
 const city = buildCity();
 // what the bot values: money-makers first, then protection
-const PRIORITY = ["dice", "freshener", "cups", "underglow", "spinners", "bag", "mints", "dashcam", "bullbar", "coilovers", "tyres", "brakes", "ecu", "stripes", "light"];
+const PRIORITY = ["loyalty", "bundle", "apppremium", "dice", "freshener", "cups", "underglow", "spinners", "bag", "mints", "dashcam", "bullbar", "coilovers", "tyres", "brakes", "ecu", "stripes", "light"];
 
 const days = [];
 const carId = args.includes("--car") ? args[args.indexOf("--car") + 1] : "liftback";

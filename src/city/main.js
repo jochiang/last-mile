@@ -73,7 +73,8 @@ function newShift() {
   view.snapCamera();
 }
 const snap = (c) => ({ x: c.x, z: c.z, h: c.h });
-const KIND_ICON = { food: "🍕", drink: "🥤", cake: "🎂" };
+const KIND_ICON = { food: "🍕", drink: "🥤", cake: "🎂", catering: "🍱", lunch: "🥪" };
+const DROP_CSS = ["#3dff7a", "#c58cff"];   // drop-off 1 green, 2 violet (beacons, card, minimap)
 const lerpAng = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
 function tick() {
@@ -98,8 +99,16 @@ function tick() {
     // route along the way the car is actually travelling (a slide points the nose elsewhere)
     const sp = Math.hypot(car.vx, car.vz), dirH = sp > 3 ? Math.atan2(car.vx, car.vz) : car.h;
     // with an order: to the customer. Choosing: to the nearest offer (you can drive to any of them)
-    let dest = o ? o.cust : null;
-    if (!o) {
+    let dest = null;
+    if (o) {
+      // carrying: the drop-off with the least time to spare (time left minus the drive there)
+      let best = Infinity;
+      for (const d of o.drops.filter((x) => !x.done)) {
+        const r = route(city, car.x, car.z, dirH, d.cust, Math.max(0, car.u));
+        const spare = d.left - r.length / shift.plan.pace;
+        if (spare < best) { best = spare; dest = d.cust; }
+      }
+    } else {
       let best = Infinity;
       for (const of of shift.offers) { const r = route(city, car.x, car.z, dirH, of.rest, Math.max(0, car.u)); if (r.length < best) { best = r.length; dest = of.rest; } }
     }
@@ -113,7 +122,11 @@ function tick() {
 
 function onShiftEvent(e) {
   if (e.type === "offers") { rt = null; toast(`${e.offers.length} NEW ORDERS`, "Drive to the one you want"); audio.sfx("ping"); view.setOffers(e.offers); }
-  if (e.type === "pickup") { rt = null; toast(`PICKED UP · ${e.order.item}`, `→ ${e.order.cust.label}${e.order.surge ? " · SURGE ×1.5" : ""}`); audio.sfx("pickup"); view.setOffers([]); }
+  if (e.type === "pickup") {
+    rt = null; audio.sfx("pickup"); view.setOffers([]);
+    const ds = e.order.drops;
+    toast(ds.length > 1 ? "PICKED UP · 2 ORDERS" : `PICKED UP · ${ds[0].item}`, ds.length > 1 ? "Deliver both, in either order" : `→ ${ds[0].cust.label}${ds[0].surge ? " · SURGE ×1.5" : ""}${e.order.premium ? " · PREMIUM" : ""}`);
+  }
   if (e.type === "fine") {
     toast("SPEED CAMERA −$6", `${mph(e.speed)} mph in a 35`);
     audio.sfx("shutter"); view.flashCamera(e.cam);
@@ -122,6 +135,7 @@ function onShiftEvent(e) {
   if (e.type === "delivered") {
     audio.sfx("kaching");
     if (e.late > 0 || e.stars < 4) audio.sfx("sad");
+    if (e.left > 0) setTimeout(() => toast(`${e.left} MORE TO GO`, e.loyalty ? `loyalty +$${e.loyalty.toFixed(2)} · streak ${e.streak}` : ""), 1400);
     toast(`+$${e.earned.toFixed(2)}`, `${"★".repeat(e.stars)}${"☆".repeat(5 - e.stars)}  ${e.late > 0 ? `${e.late.toFixed(0)}s late` : `tip $${e.tip.toFixed(2)}`}${e.quality < 0.99 ? `  · ${Math.round((1 - e.quality) * 100)}% spilled` : ""}`);
   }
 }
@@ -144,22 +158,26 @@ function hud() {
   if (!o) {
     $("ophase").textContent = "CHOOSE AN ORDER"; $("ophase").className = "phase pickup";
     $("owhere").textContent = "Stop at any orange beacon";
-    $("offers").innerHTML = shift.offers.map((of) => `<div class="offer${of.inZone ? " here" : ""}"><span>${KIND_ICON[of.kind]} ${of.rest.sign}</span><span>${dist(of.dist)}</span><b>$${of.est.toFixed(0)}${of.surge ? ' <i>SURGE</i>' : ""}</b></div>`).join("");
+    $("offers").innerHTML = shift.offers.map((of) => `<div class="offer${of.inZone ? " here" : ""}"><span>${KIND_ICON[of.kind] || "📦"} ${of.rest.sign}${of.stacked ? " ×2" : ""}${of.premium ? ' <i class="prem">PREMIUM</i>' : ""}</span><span>${dist(of.dist)}</span><b>$${of.est.toFixed(0)}${of.surge ? ' <i>SURGE</i>' : ""}</b></div>`).join("");
     const held = shift.offers.find((of) => of.hold > 0);
     $("stopping").firstElementChild.style.width = held ? `${Math.min(1, held.hold / SHIFT.stopHold) * 100}%` : "0%";
   }
   if (o) {
-    $("ophase").textContent = `DELIVER · ${o.item.toUpperCase()}${o.surge ? " · SURGE" : ""}`;
-    $("ophase").className = "phase " + o.phase;
-    $("owhere").textContent = o.cust.label;
-    $("otime").textContent = o.left >= 0 ? fmt(o.left) : `LATE ${fmt(-o.left)}`;
-    $("otime").className = o.left < 0 ? "late" : o.left < 15 ? "warn" : "";
-    const tip = o.left > 0 ? 7 * (o.left / o.time) * (1 - o.spill) : 0;
-    $("otip").textContent = o.left > 0 ? `tip $${tip.toFixed(2)}` : "no tip";
-    $("spill").style.display = o.kind === "drink" || o.kind === "cake" ? "flex" : "none";
-    $("spill").firstElementChild.textContent = o.kind === "cake" ? "🎂" : "🥤";
-    $("spill").querySelector(".bar span").style.width = `${(1 - o.spill) * 100}%`;
-    $("stopping").firstElementChild.style.width = `${Math.min(1, o.hold / SHIFT.stopHold) * 100}%`;
+    const ds = o.drops, open = ds.filter((d) => !d.done);
+    $("ophase").textContent = ds.length > 1 ? `DELIVER · ${open.length} OF ${ds.length} LEFT` : `DELIVER · ${ds[0].item.toUpperCase()}${o.premium ? " · PREMIUM" : ""}`;
+    $("ophase").className = "phase dropoff";
+    $("owhere").textContent = ds.length > 1 ? "" : ds[0].cust.label;
+    // one row a drop-off: its number (beacon colour), what it is, where, its clock, its tip, its spill
+    $("drops").innerHTML = ds.map((d, i) => {
+      if (d.done) return "";
+      const tip = d.left > 0 ? SHIFT.tipMax * (d.left / d.time) * (1 - d.spill) * shift.fx.tipMul * (d.premium ? SHIFT.premiumTip : 1) : 0;
+      const spillable = d.kind === "drink" || d.fragile;
+      return `<div class="drop"><b class="n n${i}">${i + 1}</b><span class="w">${KIND_ICON[d.kind] || "📦"} ${ds.length > 1 ? d.cust.label : ""}</span>
+        <span class="t ${d.left < 0 ? "late" : d.left < 15 ? "warn" : ""}">${d.left >= 0 ? fmt(d.left) : "LATE " + fmt(-d.left)}</span><span class="tip">${d.left > 0 ? "$" + tip.toFixed(2) : "no tip"}</span>
+        ${spillable ? `<span class="sp"><span style="width:${(1 - d.spill) * 100}%"></span></span>` : ""}</div>`;
+    }).join("");
+    const held = open.find((d) => d.hold > 0);
+    $("stopping").firstElementChild.style.width = held ? `${Math.min(1, held.hold / SHIFT.stopHold) * 100}%` : "0%";
   }
   // turn-by-turn: the next manoeuvre and how far
   if (rt && running) {
@@ -167,7 +185,7 @@ function hud() {
     $("turn").style.display = "flex";
     $("tarrow").textContent = { left: "↰", right: "↱", uturn: "↶", arrive: "◎" }[nt.dir];
     $("tdist").textContent = nt.dist < 15 ? (nt.dir === "arrive" ? "HERE" : "NOW") : dist(nt.dist);
-    $("tonto").textContent = nt.dir === "arrive" ? (o ? o.cust.label : rt.dest?.name || "") : nt.onto ? `onto ${nt.onto}` : "";
+    $("tonto").textContent = nt.dir === "arrive" ? (rt.dest?.label || rt.dest?.name || "") : nt.onto ? `onto ${nt.onto}` : "";
     $("turn").classList.toggle("soon", nt.dist < 45);
     // a chime once per turn as it comes up, panned to the side you'll turn to
     if (nt.at && nt.dist < 45 && nt.dist > 8) {
@@ -267,7 +285,8 @@ function drawMap() {
   mctx.restore();
   // the destination: on the map if it's in range, otherwise pinned to the rim pointing at it
   const o = shift.order;
-  const marks = o ? [[o.cust, "#3dff7a"]] : shift.offers.map((of) => [of.rest, of.surge ? "#ff3bd0" : "#ffa31a"]);
+  const marks = o ? o.drops.map((d, i) => [d, i]).filter(([d]) => !d.done).map(([d, i]) => [d.cust, DROP_CSS[i]])
+    : shift.offers.map((of) => [of.rest, of.premium ? "#ffd23a" : of.surge ? "#ff3bd0" : "#ffa31a"]);
   for (const [p, colr] of marks) {
     const dx = p.x - car.x, dz = p.z - car.z, ang = car.h - Math.PI;
     let sx = (dx * Math.cos(ang) - dz * Math.sin(ang)) * mscale, sz = (dx * Math.sin(ang) + dz * Math.cos(ang)) * mscale;
@@ -335,12 +354,16 @@ function loop(now) {
   }
   music?.setMix(Math.min(1, pose.speed / 28));   // hats and arps push harder with speed
   audio.update({ running, speed: pose.speed, u: car.u, throttle: inp.throttle || 0, brake: inp.brake || 0, slipF: car.slipF, slipR: car.slipR, off: car.off, reverse: car.reverse, cond: car.cond }, dt);
-  if (running && o) { audio.clock(o.left); if (o.kind === "drink") audio.spill(o.spill); }
+  if (running && o) {
+    const open = o.drops.filter((d) => !d.done);
+    if (open.length) audio.clock(Math.min(...open.map((d) => d.left)));
+    audio.spill(o.drops.reduce((a, d) => a + d.spill, 0));
+  }
   view.drawTraffic(traffic.cars, running ? a : 1);
   view.frame(pose, dt, events, {
     route: running && rt,
     pickups: o ? [] : shift.offers.map((of) => ({ x: of.rest.x, z: of.rest.z, inZone: of.inZone })),
-    dropoff: o ? { x: o.cust.x, z: o.cust.z, inZone: o.inZone } : null,
+    dropoffs: o ? o.drops.map((d) => (d.done ? null : { x: d.cust.x, z: d.cust.z, inZone: d.inZone, left: d.left, kind: d.kind })) : [],
   });
   events.length = 0;
   hud(); knob(); drawMap();
@@ -382,7 +405,7 @@ function garageScreen(last) {
   const r = avgRating(run.ratings);
   const offers = run.offers.map((id) => {
     const m = modById[id];
-    return `<div class="mod${previewMod === id ? " previewing" : ""}" data-act="preview" data-id="${id}"><span class="tag ${m.kind}">${m.kind === "perf" ? "PERFORMANCE" : m.kind === "cargo" ? "CARGO" : "STYLE"}</span><b>${m.name}</b><span class="d">${m.desc}</span>
+    return `<div class="mod${previewMod === id ? " previewing" : ""}" data-act="preview" data-id="${id}"><span class="tag ${m.kind}">${m.kind === "perf" ? "PERFORMANCE" : m.kind === "cargo" ? "CARGO" : m.kind === "biz" ? "MONEY" : "STYLE"}</span><b>${m.name}</b><span class="d">${m.desc}</span>
       <button data-act="buy" data-id="${id}" ${m.price > run.cash ? "disabled" : ""}>${money(m.price)}</button>${previewMod === id ? '<span class="d" style="color:#ffd27a">Previewing on your car</span>' : ""}</div>`;
   }).join("") || `<div class="muted">Sold out.</div>`;
   return `<h2 class="big">DAY ${run.day} · GARAGE <small style="font-size:14px;opacity:.7">${carOf(run).name}</small></h2>

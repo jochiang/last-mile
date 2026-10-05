@@ -14,7 +14,7 @@ export const ECON = {
 };
 
 // fx: what mods change. p: the car's physics (a copy of P).
-const fx0 = () => ({ tipMul: 1, timeMul: 1, spillMul: 1, starBonus: 0, lateForgive: false, dmgMul: 1, repairMul: 1, bullbar: false, underglow: null });
+const fx0 = () => ({ tipMul: 1, timeMul: 1, spillMul: 1, starBonus: 0, lateForgive: false, dmgMul: 1, repairMul: 1, bullbar: false, underglow: null, loyalty: false, stackMul: 1, stackPay: 1, offers: 3 });
 
 export const MODS = [
   // performance
@@ -35,6 +35,10 @@ export const MODS = [
   { id: "freshener", kind: "silly", name: "Pine air freshener", price: 10, desc: "Customers rate you +0.3★", apply: (f) => { f.starBonus += 0.3; } },
   { id: "dashcam", kind: "silly", name: "Dash cam", price: 22, desc: "Repairs 30% cheaper (insurance claims)", apply: (f) => { f.repairMul *= 0.7; } },
   { id: "mints", kind: "silly", name: "Bowl of mints", price: 14, desc: "Late deliveries cost one star less", apply: (f) => { f.lateForgive = true; } },
+  // money-makers: the late game needs income that grows (2026-10-04)
+  { id: "loyalty", kind: "biz", name: "Loyalty sticker", price: 30, desc: "+$0.50 per on-time delivery in a row (up to +$4)", apply: (f) => { f.loyalty = true; } },
+  { id: "bundle", kind: "biz", name: "Bundle app", price: 28, desc: "Stacked orders (×2) much more often, and they pay 15% more", apply: (f) => { f.stackMul *= 2.75; f.stackPay *= 1.15; } },
+  { id: "apppremium", kind: "biz", name: "App Premium", price: 24, desc: "A fourth order on the map to choose from", apply: (f) => { f.offers = 4; } },
 ];
 export const modById = Object.fromEntries(MODS.map((m) => [m.id, m]));
 
