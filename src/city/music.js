@@ -210,7 +210,12 @@ const NIGHT_SHIFT = {
 
 const LANE_SPLIT = {
   name: "Lane Split", bpm: 94, duck: 0.3, swing: 0.12,
-  kit: { kick: "kick_808", snare: "snare_hi", clap: "clap_snap2", hat: "hat_tap", ohat: "hat_open", tom: "tom_lo" },
+  // (user: the first street kit's samples were "odd": finger snaps for claps, a slowed-down tom)
+  kits: {
+    A: { kick: "kick_808", snare: "snare_zome", clap: null, hat: "hat_zild", ohat: "hat_open", tom: null },
+    B: { kick: "kick_fat", snare: "snare_dolf", clap: null, hat: "hat_cab", ohat: "hat_open", tom: null },
+  },
+  kit: null,
   // a two-bar riff in D, In scale (D Eb G A Bb), sixteenths
   riff: [74, null, null, 74, 75, null, 74, null, 69, null, null, 70, 69, null, 67, null,
     74, null, null, 74, 75, null, 79, null, 81, null, 79, null, 75, null, 74, null],
@@ -225,7 +230,7 @@ const LANE_SPLIT = {
     const kicks = half ? "o.........o..x.." : "o......x..o.....";
     for (const [i, v] of hits(kicks)) K.kick(t + i * step, v, true);
     for (const [i] of hits(kicks)) K.sub808(t + i * step, 38 + (half && i > 8 ? 1 : 0), beat * 1.6, 0.9, half && i === 10 ? 39 : null);
-    for (const [i, v] of hits("....o.......o...")) K.clap(t + i * step, v);
+    for (const [i, v] of hits("....o.......o...")) { K.snare(t + i * step, v * 0.8, false); K.clap(t + i * step, v * 0.8); }
     const hatRow = bar % 4 === 3 ? "x.x.x.x.x.xxxxxx" : mix > 0.6 ? "x.xxx.x.x.xxx.x." : "x.x.x.x.x.x.x.x.";
     for (const [i, v] of hits(hatRow)) K.hat(t + i * step, v * (0.6 + 0.5 * mix));
     if (sec === "hook" && bar === 0) K.impact(t);
@@ -235,7 +240,7 @@ const LANE_SPLIT = {
 
 export const TRACKS = { synthwave: NIGHT_SHIFT, street: LANE_SPLIT };
 
-const SAMPLE_NAMES = ["kick_klub", "kick_808", "snare_dolf", "snare_hi", "clap_snap", "clap_snap2", "hat_gnu", "hat_tap", "hat_open", "tom_lo", "impact", "splash"];
+const SAMPLE_NAMES = ["kick_klub", "kick_808", "kick_fat", "snare_dolf", "snare_zome", "hat_gnu", "hat_zild", "hat_cab", "hat_open", "tom_lo", "impact", "splash", "clap_snap"];
 /** Fetch and decode the drum samples on a context. Missing ones fall back to the synth drums. */
 export async function loadSamples(ctx, base = "/audio/drums/") {
   const out = {};
@@ -281,7 +286,8 @@ export function createMusic(ctx, dest, samples = {}) {
     track.play(swung, sec, b, nextBar, step, beat, mix);
     nextBar += beat * 4; barIdx++;
   }
-  const start = (id) => { track = TRACKS[id]; K.setTempo(track.bpm); K.setKit(track.kit, track.duck); };
+  let kitChoice = "A";
+  const start = (id) => { track = TRACKS[id]; K.setTempo(track.bpm); K.setKit(track.kit || track.kits[kitChoice], track.duck); };
   return {
     bus, muffle,
     play(id, vol = 1) {
@@ -297,12 +303,13 @@ export function createMusic(ctx, dest, samples = {}) {
     stop() { playing = false; if (timer) clearInterval(timer); timer = null; bus.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.2); },
     setVolume(v) { if (playing) bus.gain.setTargetAtTime(0.5 * v, ctx.currentTime, 0.2); },
     setMix(v) { mix = v; },
+    setKit(k) { kitChoice = k; if (track) K.setKit(track.kit || track.kits[k], track.duck); },
     // through the wall: the garage, the pause menu
     setMuffled(on) { muffle.frequency.setTargetAtTime(on ? 700 : 18000, ctx.currentTime, 0.25); },
     setSamples(sm) { Object.assign(samples, sm); },
     /** For offline clips: schedule `seconds` of a track from t = 0 in one go. */
-    renderAll(id, seconds, mixFn = () => 0.6) {
-      start(id); barIdx = 0; nextBar = 0.05;
+    renderAll(id, seconds, mixFn = () => 0.6, fromBar = 0) {
+      start(id); barIdx = fromBar; nextBar = 0.05;
       bus.gain.value = 0.5;
       while (nextBar < seconds) { mix = mixFn(nextBar); scheduleBar(); }
     },
