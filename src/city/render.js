@@ -178,6 +178,37 @@ function glowTexture(stretch = false) {
   return new THREE.CanvasTexture(cv);
 }
 
+// what shiny things (car paint, glass, hubs) reflect at night: a dark sky with a purple city glow
+// on the horizon, rows of warm streetlamps overhead and a few neon bars. Rendered once into a
+// prefiltered environment map; only the Standard materials use it (models.js gameMaterial).
+// workshop: the garage's own version, with strip lights overhead and the pink neon sign
+function nightEnv(renderer, workshop = false) {
+  const s = new THREE.Scene();
+  const dome = new THREE.SphereGeometry(50, 32, 16), col = [], c = new THREE.Color();
+  const top = new THREE.Color(workshop ? 0x1c1f26 : 0x0b1124), hor = new THREE.Color(workshop ? 0x4a4f5a : 0x3a2a58), low = new THREE.Color(workshop ? 0x2a2c31 : 0x07080b);
+  for (let i = 0; i < dome.attributes.position.count; i++) {
+    const y = dome.attributes.position.getY(i) / 50;
+    if (y > 0) c.copy(hor).lerp(top, Math.pow(y, 0.6)); else c.copy(hor).lerp(low, Math.min(1, -y * 4));
+    col.push(c.r, c.g, c.b);
+  }
+  dome.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  s.add(new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  // colours over 1 are fine: the map is half-float, so the lamps glint brighter than the sky
+  const glowBox = (w, h, d, r, g, b, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b) })); m.position.set(x, y, z); m.lookAt(0, y, 0); s.add(m); };
+  if (workshop) {
+    for (const x of [-12, 0, 12]) { const m = new THREE.Mesh(new THREE.BoxGeometry(8, 0.5, 1.2), new THREE.MeshBasicMaterial({ color: new THREE.Color(7, 7, 7.6) })); m.position.set(x, 22, -4); s.add(m); }
+    glowBox(18, 4, 0.5, 4, 0.6, 3.2, 6, 14, -30);
+    glowBox(14, 6, 0.5, 2.2, 1.9, 1.6, -30, 10, 12);
+  } else {
+    for (let k = 0; k < 14; k++) { const a = (k / 14) * Math.PI * 2; glowBox(1.6, 0.6, 1.6, 6, 4.2, 2.2, Math.cos(a) * 26, 14 + (k % 3) * 4, Math.sin(a) * 26); }
+  }
+  if (!workshop) for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2 + 0.4; glowBox(9, 0.8, 0.4, ...(k % 2 ? [3, 0.4, 2.4] : [0.3, 2.2, 3]), Math.cos(a) * 40, 4 + (k % 3), Math.sin(a) * 40); }
+  const pm = new THREE.PMREMGenerator(renderer);
+  const tex = pm.fromScene(s, 0.01).texture;
+  pm.dispose();
+  return tex;
+}
+
 function signMesh(r) {
   const cv = document.createElement("canvas"); cv.width = 512; cv.height = 128;
   const g = cv.getContext("2d");
@@ -273,6 +304,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
   const SKY = night ? 0x0b1124 : C.sky;
   scene.background = new THREE.Color(SKY);
   scene.fog = night ? new THREE.Fog(SKY, 35, 230) : new THREE.Fog(SKY, 90, 330);
+  scene.environment = nightEnv(renderer);
   scene.add(night ? new THREE.HemisphereLight(0x5a6aa0, 0x1a1c22, 0.75) : new THREE.HemisphereLight(0xeaf4ff, 0x5a5f55, 1.5));
   const sun = night ? new THREE.DirectionalLight(0x9fb0ff, 0.45) : new THREE.DirectionalLight(0xfff4e0, 1.7);
   sun.position.set(-60, 140, 90);
@@ -318,6 +350,29 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     scene.add(heads, pools);
   }
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  // the nearest few streetlamps are real lights (2026-10-05, user: "get a little more depth going"):
+  // they light the cars, walls and kerbs around you; the rest keep only their painted pools. A fixed
+  // set of lights (a change in the count recompiles every shader) moves to the lamps nearest a point
+  // a little ahead of the car, fading in and out with distance so none of them pop.
+  const LAMPS = night ? 8 : 0, LAMP_R = 30, lampLights = [];
+  for (let k = 0; k < LAMPS; k++) { const l = new THREE.PointLight(0xffb866, 0, 17, 2); scene.add(l); lampLights.push(l); }
+  const lampNear = [];
+  function updateLamps(x, z) {
+    lampNear.length = 0;
+    for (const p of city.poles) {
+      if (p.broken || p.fall > 0) continue;
+      const lx = p.x + Math.sin(p.yaw) * 1.25, lz = p.z + Math.cos(p.yaw) * 1.25, d = Math.hypot(lx - x, lz - z);
+      if (d < LAMP_R) lampNear.push({ lx, lz, d });
+    }
+    lampNear.sort((a, b) => a.d - b.d);
+    lampLights.forEach((l, k) => {
+      const n = lampNear[k];
+      if (!n) { l.intensity = 0; return; }
+      const f = Math.min(1, (LAMP_R - n.d) / 10);
+      l.position.set(n.lx, 4.9, n.lz);
+      l.intensity = 32 * f * f;
+    });
+  }
 
   // the player's car: one of three models (cars.js), rebuilt when a run picks one
   let car = null, glow = null, glowHex = null;
@@ -337,9 +392,14 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
       tl.position.set(x, car.userData.lampY + 0.05, -L - 0.02); car.userData.body.add(tl);
     }
     if (night) {
+      // a faint painted beam for the glow, and a real spotlight that lights whatever's ahead
       const beam = new THREE.Mesh(new THREE.PlaneGeometry(9, 22).rotateX(-Math.PI / 2).translate(0, 0.1, 10.5 + L),
-        new THREE.MeshBasicMaterial({ map: glowTexture(true), color: 0x8a8060, ...add }));
+        new THREE.MeshBasicMaterial({ map: glowTexture(true), color: 0x4a4434, ...add }));
       car.add(beam);
+      const spot = new THREE.SpotLight(0xfff0d8, 2.4, 55, 0.62, 0.55, 0.6);
+      spot.position.set(0, 0.85, L);
+      spot.target.position.set(0, 0, L + 16);
+      car.add(spot, spot.target);
     }
     glow = new THREE.Mesh(new THREE.PlaneGeometry(car.userData.wid * 2.9, car.userData.len * 1.9).rotateX(-Math.PI / 2).translate(0, 0.11, 0),
       new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xff2bd6, ...add }));
@@ -595,6 +655,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     g.shadowColor = "#ff3bd0"; g.shadowBlur = 24; g.fillStyle = "#ffd0f4"; g.fillText("GIG GARAGE", 256, 66);
     add(new THREE.PlaneGeometry(6, 1.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv) }), 1.5, 5.2, -6.83);
     for (const x of [-4, 0, 4]) add(new THREE.BoxGeometry(2.4, 0.08, 0.3), B(0xf4f8ff), x, 6.6, -2);   // strip lights
+    // the paint reflects a stand-in workshop (rendering this scene into the map instead left the garage black)
+    gs.environment = nightEnv(renderer, true);
     const cam = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
     const turn = new THREE.Group(); gs.add(turn);
     return { scene: gs, cam, turn, car: null, angle: 0.75, dragT: 0, on: false, key: null };
@@ -758,6 +820,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     camera.fov = cam.fov;
     camera.updateProjectionMatrix();
     dayFrame(dt, t, pose.x, pose.z, Math.sin(pose.h) * pose.speed, Math.cos(pose.h) * pose.speed);
+    if (LAMPS) updateLamps(pose.x + Math.sin(pose.h) * 8, pose.z + Math.cos(pose.h) * 8);
     tickMods(car, dt);
     if (garage?.on) { renderGarage(dt); return; }
     updateStreaks(pose.speed, dt);

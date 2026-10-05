@@ -1,5 +1,5 @@
 // The Blender-built cars (art/cars.py → public/models/cars/*.glb), loaded once and adapted to the
-// game: materials swapped for the game's (flat Lambert; glowing lamps), wheels wrapped so they can
+// game: materials swapped for the game's (flat Lambert, shiny paint and glass; glowing lamps), wheels wrapped so they can
 // steer and spin, and the traffic models merged into one geometry per material for instancing.
 
 import * as THREE from "three";
@@ -22,7 +22,11 @@ export function gameMaterial(m, { tint = false } = {}) {
   let out;
   if (name === "lamp_head") out = new THREE.MeshBasicMaterial({ color: 0xfff4d6 });
   else if (name === "lamp_tail") out = new THREE.MeshBasicMaterial({ color: tint ? 0xffffff : 0xff2a2a });
-  else out = new THREE.MeshLambertMaterial({ color: tint && name === "paint" ? 0xffffff : hexOf(m), flatShading: true });
+  // paint, glass and hubs are shiny (they reflect the night: scene.environment, render.js nightEnv)
+  else if (name === "paint") out = new THREE.MeshStandardMaterial({ color: tint ? 0xffffff : hexOf(m), flatShading: true, metalness: 0.45, roughness: 0.3 });
+  else if (name === "glass") out = new THREE.MeshStandardMaterial({ color: hexOf(m), flatShading: true, metalness: 0.7, roughness: 0.08 });
+  else if (name === "hub") out = new THREE.MeshStandardMaterial({ color: hexOf(m), flatShading: true, metalness: 0.9, roughness: 0.25 });
+  else out = new THREE.MeshLambertMaterial({ color: hexOf(m), flatShading: true });
   out.name = name;   // kept so mods can find the paint, the hubs, the bag
   return out;
 }
@@ -33,8 +37,9 @@ export function playerFromModel(scene) {
   root.traverse((o) => {
     if (!o.isMesh) return;
     o.material = gameMaterial(o.material);
-    // a little self-light on the paint, so your car keeps its colour at night
-    if (o.material.isMeshLambertMaterial) o.material.emissive = o.material.color.clone().multiplyScalar(0.18);
+    // a little self-light, so your car keeps its colour at night (less on the paint, which the
+    // headlights, streetlamps and reflections now light)
+    if (!o.material.isMeshBasicMaterial) o.material.emissive = o.material.color.clone().multiplyScalar(o.material.name === "paint" ? 0.08 : 0.18);
   });
   const body = root.getObjectByName("body") || root;
   // wrap each wheel: pivot (steers, about y) > spinner (rolls, about x) > the wheel as modelled
