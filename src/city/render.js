@@ -740,6 +740,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     for (const m of Object.values(tparts)) m.visible = false;
   }
   function drawTraffic(cars, alpha) {
+    wreckSmoke(cars);
     if (tmodel) return drawTrafficModels(cars, alpha);
     let nc = 0, nv = 0, nl = 0;
     for (const c of cars.slice(0, MAXT)) {
@@ -748,7 +749,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
       dummy.position.set(x, 0, z); dummy.rotation.set(0, h, 0); dummy.updateMatrix();
       cm.copy(dummy.matrix);
       const van = c.kind === "van", L = van ? 2.56 : 2.11, ly = van ? 0.8 : 0.66;
-      tcol.setHex(c.mode === "wreck" ? 0x3a3a3a : c.color);
+      paintOf(c);
       if (van) { tparts.vanBody.setMatrixAt(nv, cm); tparts.vanBody.setColorAt(nv, tcol); nv++; }
       else { tparts.carBody.setMatrixAt(nc, cm); tparts.carBody.setColorAt(nc, tcol); tparts.carCabin.setMatrixAt(nc, cm); nc++; }
       tparts.chassis.setMatrixAt(nc + nv - 1, cm);
@@ -757,7 +758,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
       for (const sx of [-0.62, 0.62]) {
         part.makeTranslation(sx, ly, L); tparts.head.setMatrixAt(nl, part.premultiply(cm));
         part.makeTranslation(sx, ly, -L); tparts.tail.setMatrixAt(nl, part.premultiply(cm));
-        tparts.tail.setColorAt(nl, tcol.setHex(brake ? 0xff2020 : 0x7a0c0c));
+        tparts.tail.setColorAt(nl, tailOf(c, brake));
         nl++;
       }
     }
@@ -766,6 +767,17 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     for (const m of Object.values(tparts)) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   }
 
+  // a wreck keeps its colour (a bit dimmed; it used to go dark grey, which read as a glitch at night),
+  // smokes from the engine and blinks its hazards
+  const paintOf = (c) => { tcol.setHex(c.color); if (c.mode === "wreck") tcol.multiplyScalar(0.6); return tcol; };
+  const tailOf = (c, brake) => tcol.setHex(c.mode === "wreck" ? (Math.sin(performance.now() / 160) > 0 ? 0xffa020 : 0x2a1500) : brake ? 0xff2020 : 0x7a0c0c);
+  function wreckSmoke(cars) {
+    for (const c of cars) {
+      if (c.mode !== "wreck" || Math.random() > 0.35) continue;
+      const fx = Math.sin(c.h), fz = Math.cos(c.h);
+      emit(c.x + fx * 1.4, 1.1, c.z + fz * 1.4, (Math.random() - 0.5) * 0.8, 1.6 + Math.random(), (Math.random() - 0.5) * 0.8, 0x6a6a6a, 1.4, -0.6);
+    }
+  }
   function drawTrafficModels(cars, alpha) {
     const n = { sedan: 0, van: 0 };
     for (const c of cars.slice(0, MAXT)) {
@@ -776,8 +788,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
       const i = n[kind]++, brake = c.mode !== "drive" || c.brake;
       for (const p of tmodel[kind]) {
         p.m.setMatrixAt(i, dummy.matrix);
-        if (p.name === "paint") p.m.setColorAt(i, tcol.setHex(c.mode === "wreck" ? 0x3a3a3a : c.color));
-        else if (p.name === "lamp_tail") p.m.setColorAt(i, tcol.setHex(brake ? 0xff2020 : 0x7a0c0c));
+        if (p.name === "paint") p.m.setColorAt(i, paintOf(c));
+        else if (p.name === "lamp_tail") p.m.setColorAt(i, tailOf(c, brake));
       }
     }
     for (const kind of ["sedan", "van"]) for (const p of tmodel[kind]) {
