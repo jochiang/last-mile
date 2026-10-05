@@ -753,7 +753,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     camera.lookAt(pose.x + Math.sin(cam.yaw) * 12, 0.6, pose.z + Math.cos(cam.yaw) * 12);
     // the view widens hard at the top end (eased in, so cruising stays calm)
     const sp = Math.max(0, Math.min(1, (pose.speed - 8) / 34));
-    const fov = (camera.aspect < 1 ? 86 : 63) + (motion ? 21 * sp * sp * (3 - 2 * sp) : 14 * sp);
+    const fov = (camera.aspect < 1 ? 86 : 63) + (motion ? 16 * sp * sp * (3 - 2 * sp) : 12 * sp);
     cam.fov += (fov - cam.fov) * Math.min(1, dt * 3);
     camera.fov = cam.fov;
     camera.updateProjectionMatrix();
@@ -765,7 +765,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     const mk = motion ? Math.max(0, Math.min(1, (pose.speed - 12) / 30)) : 0;   // motion-effect strength
     if (mk > 0.001) {
       const u = post.material.uniforms;
-      u.uBlur.value = 0.085 * mk * mk; u.uAberr.value = 0.008 * mk; u.uVig.value = 0.42 * mk; u.uBarrel.value = 0.045 * mk;
+      // no barrel distortion (user: it made boxy things, the delivery box and the vans, look wonky)
+      u.uBlur.value = 0.085 * mk * mk; u.uAberr.value = 0.008 * mk; u.uVig.value = 0.42 * mk; u.uBarrel.value = 0;
       renderer.setRenderTarget(rt); renderer.render(scene, camera);
       renderer.setRenderTarget(null); renderer.render(postScene, postCam);
     } else renderer.render(scene, camera);
