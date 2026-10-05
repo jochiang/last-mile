@@ -38,6 +38,8 @@ export const P = {
   sub: 4,                                     // substeps per tick (tyres are stiff)
   fwd: false,                                 // front-wheel drive
   awd: 0,                                     // all-wheel drive: the front's share of the drive (0 = rear drive)
+  tc: 0,                                      // traction control: the drive never takes more than this share of
+                                              // an axle's grip (0 = off; rain turns it on, conditions.js)
   ax: 1.3, r: 1.05,                           // collision shape: two circles this far from the middle, this big
 };
 const HALF_W = 1.0;
@@ -99,6 +101,11 @@ export function dynamics(c, inp, p = P) {
     if (brake > 0) {
       if ((fs === 0 || drive === 0) && Math.abs(fxF) > p.abs * capF) fxF = Math.sign(fxF) * p.abs * capF;
       if ((fs === 1 || drive === 0) && Math.abs(fxR) > p.abs * capR) fxR = Math.sign(fxR) * p.abs * capR;
+    }
+    // traction control: trim the drive to what the tyres can carry (with brakes on, the ABS rule above)
+    if (p.tc && drive > 0 && brake === 0) {
+      if (fxF > p.tc * capF) fxF = p.tc * capF;
+      if (fxR > p.tc * capR) fxR = p.tc * capR;
     }
     const kF = Math.abs(fxF) / capF, kR = Math.abs(fxR) / capR;
     if (kF > 1) fxF /= kF;

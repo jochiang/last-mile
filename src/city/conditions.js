@@ -8,7 +8,7 @@ import { LINE, CURB } from "./map.js";
 export const CONDITIONS = {
   // one new thing a day from day 2 to 6, each guaranteed on the day it first appears
   surge: { name: "Surge zone", minDay: 2, weight: 0.5, good: true, desc: "One part of town pays 1.5× today (pink on the map)." },
-  rain: { name: "Rain", minDay: 3, weight: 1, desc: "−18% grip. People tip more in the rain: +15% tips." },
+  rain: { name: "Rain", minDay: 3, weight: 1, desc: "−18% grip (traction control keeps the power down). People tip more in the rain: +15% tips." },
   roadworks: { name: "Road works", minDay: 4, weight: 1, desc: "A few streets are barricaded. The GPS goes round; you might know better." },
   cameras: { name: "Speed cameras", minDay: 5, weight: 1, desc: "A $6 fine for passing one over 35 mph." },
   rush: { name: "Rush hour", minDay: 6, weight: 1, desc: "Clocks 15% tighter, tips +25%, and 40% more traffic." },
@@ -93,7 +93,10 @@ export function applyPlan(city, plan, fx, p) {
   for (const e of city.edges) e.closed = false;
   for (const e of plan.closed) e.closed = true;
   city.setExtra(barriers(plan));
-  if (plan.conds.includes("rain")) { const k = fx.rainGrip ?? 0.82; p.mu *= k; p.muOff *= Math.max(k, 0.85); fx.tipMul *= 1.15; }
+  // rain: less grip, and traction control (user, 2026-10-05, on the rear-drives in the wet with touch: "holy
+  // shit is it hard"; the floating pedal is full gas the moment the thumb lands, and the liftback and
+  // the interceptor spun on any wet corner exit: tc 0.8 = no spins, a little rotation left)
+  if (plan.conds.includes("rain")) { const k = fx.rainGrip ?? 0.82; p.mu *= k; p.muOff *= Math.max(k, 0.85); p.tc = p.tc || 0.8; fx.tipMul *= 1.15; }
   if (plan.conds.includes("rush")) { fx.timeMul *= 0.85; fx.tipMul *= 1.25; }
   for (const c of plan.cameras) c.cool = 0;
 }

@@ -1,6 +1,6 @@
 // The three cars side by side: acceleration, top speed, braking, cornering, U-turns, and the
 // behaviour checks that matter (no spin at full lock at speed; what full gas does mid-corner).
-// usage: node tools/carcompare.mjs
+// usage: node tools/carcompare.mjs [--wet] (--wet: the rain day's grip, conditions.js applyPlan)
 import { makeCar2, stepCar2, P } from "../src/car2.js";
 import { CARS, CAR_ORDER } from "../src/city/cars.js";
 
@@ -10,8 +10,10 @@ const fresh = () => { const c = makeCar2(tr, 200); c.i = 200; return c; };
 const run = (p, c, inp, ticks, each) => { for (let t = 0; t < ticks; t++) { stepCar2(c, typeof inp === "function" ? inp(t, c) : inp, tr, p); each?.(t, c); } };
 const spd = (c) => Math.hypot(c.vx, c.vz);
 
+const wet = process.argv.includes("--wet");
 for (const id of CAR_ORDER) {
   const p = { ...P, ...CARS[id].p };
+  if (wet) { const k = CARS[id].fx.rainGrip ?? 0.82; p.mu *= k; p.muOff *= Math.max(k, 0.85); p.tc = +(process.env.TC ?? 0.8); }   // as conditions.js applyPlan
   const out = [];
   { const c = fresh(); let t100 = 0; run(p, c, { steer: 0, throttle: 1, brake: 0 }, 60 * 30, (t, c) => { if (!t100 && spd(c) > 27.8) t100 = t / 60; c.z = 0; }); out.push(`0-100 ${t100 ? t100.toFixed(1) + "s" : "never"}, top ${(spd(c) * 3.6).toFixed(0)} km/h`); }
   { const c = fresh(); c.u = 25; let d = 0; const x0 = c.x; run(p, c, { steer: 0, throttle: 0, brake: 1 }, 60 * 4, (t, c) => { d = Math.max(d, c.x - x0); }); out.push(`90-0 ${d.toFixed(0)} m`); }
@@ -33,8 +35,13 @@ for (const id of CAR_ORDER) {
   { // flooring it in a slow corner: rear-drives rotate, front-drive pushes wide
     const c = fresh(); c.u = 11; const hold = { steer: 0.6, throttle: 0.25, brake: 0 };
     run(p, c, hold, 120); const r0 = Math.abs(c.r);
-    let r1 = 0; run(p, c, { ...hold, throttle: 1 }, 30, (t, c) => { r1 = Math.max(r1, Math.abs(c.r)); });
-    out.push(`full gas mid-corner: yaw x${(r1 / r0).toFixed(2)}`);
+    let r1 = 0, spin = false; run(p, c, { ...hold, throttle: 1 }, 45, (t, c) => { r1 = Math.max(r1, Math.abs(c.r)); if (Math.abs(c.slipR) > 0.35) spin = true; });
+    out.push(`full gas mid-corner: yaw x${(r1 / r0).toFixed(2)}${spin ? " SPINS" : ""}`);
+  }
+  { // a touch-style flick: hard left then hard right at 70 km/h, half gas (a lane change gone big)
+    const c = fresh(); c.u = 19.5; let spin = false;
+    run(p, c, (t) => ({ steer: t < 25 ? 1 : t < 55 ? -1 : 0, throttle: 0.5, brake: 0 }), 150, (t, c) => { if (Math.abs(c.slipR) > 0.35) spin = true; });
+    out.push(spin ? "flick: SPINS" : "flick: holds");
   }
   console.log(`${CARS[id].name.padEnd(9)} ${out.join(" | ")}`);
 }
