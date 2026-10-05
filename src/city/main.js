@@ -24,6 +24,7 @@ const input = createInput($("zone"), { drift: $("drift"), brake: $("brake"), ped
 const audio = createAudio();
 if (settings.volume === undefined) settings.volume = 0.8;
 if (!settings.music) settings.music = "synthwave";
+if (settings.motion === undefined) settings.motion = true;
 if (settings.musicVol === undefined) settings.musicVol = 0.7;
 let music = null, musicTrack = null;
 // the score starts with the first START (browsers need a tap before audio); switching tracks restarts it
@@ -145,6 +146,26 @@ function toast(big, small = "") {
   $("toast").classList.add("show"); toastT = 1.8;
 }
 const fmt = (t) => `${t < 0 ? "-" : ""}${Math.floor(Math.abs(t) / 60)}:${String(Math.floor(Math.abs(t) % 60)).padStart(2, "0")}`;
+
+// whooshes: passing close to lampposts, parked cars and traffic at speed, on the side you pass them
+const passed = new Map();
+function whooshes(speed) {
+  if (speed < 11) return;
+  const fx = Math.sin(car.h), fz = Math.cos(car.h), rx = -Math.cos(car.h), rz = Math.sin(car.h), now = performance.now();
+  const check = (key, x, z) => {
+    const dx = x - car.x, dz = z - car.z, along = dx * fx + dz * fz, lat = dx * rx + dz * rz;
+    if (Math.abs(along) > 1.5 || Math.abs(lat) > 4.8 || Math.abs(lat) < 0.8) return;
+    if (now - (passed.get(key) || 0) < 1500) return;
+    passed.set(key, now);
+    audio.sfx("whoosh", Math.sign(lat) * Math.min(1, Math.abs(lat) / 2.5), Math.min(1.3, (speed - 9) / 22) * (1.2 - Math.abs(lat) / 6));
+  };
+  city.near(car.x, car.z, 5, (o) => {
+    if (o.kind === "pole" && !o.broken) check(o, o.x, o.z);
+    else if (o.kind === "car" || o.kind === "tree") check(o, o.x0 !== undefined ? (o.x0 + o.x1) / 2 : o.x, o.z0 !== undefined ? (o.z0 + o.z1) / 2 : o.z);
+  });
+  for (const c of traffic.cars) if (Math.abs(c.x - car.x) < 7 && Math.abs(c.z - car.z) < 7) check(c, c.x, c.z);
+  if (passed.size > 400) passed.clear();
+}
 
 function hud() {
   const o = shift.order;
@@ -308,7 +329,7 @@ const sizeLines = () => { lines.width = lines.clientWidth; lines.height = lines.
 const streaks = Array.from({ length: 40 }, () => ({ a: Math.random() * Math.PI * 2, r: Math.random(), v: 0.6 + Math.random() }));
 function drawLines(speed, dt) {
   const w = lines.width, h = lines.height;
-  const k = Math.max(0, Math.min(1, (speed - 22) / 18));
+  const k = 0;   // retired 2026-10-05: 3D streaks in the renderer replace this overlay
   if (k <= 0 && !linesDirty) return;
   lctx.clearRect(0, 0, w, h);
   linesDirty = k > 0;
@@ -353,6 +374,7 @@ function loop(now) {
     if (e.type === "reset") audio.sfx("reset");
   }
   music?.setMix(Math.min(1, pose.speed / 28));   // hats and arps push harder with speed
+  if (running) whooshes(pose.speed);
   audio.update({ running, speed: pose.speed, u: car.u, throttle: inp.throttle || 0, brake: inp.brake || 0, slipF: car.slipF, slipR: car.slipR, off: car.off, reverse: car.reverse, cond: car.cond }, dt);
   if (running && o) {
     const open = o.drops.filter((d) => !d.done);
@@ -489,6 +511,8 @@ function renderSettings() {
   if (!float) { $("pedal").style.left = ""; $("pedal").style.top = ""; $("pedal").style.opacity = 1; }
   $("volume").value = settings.volume; $("volumeV").textContent = Math.round(settings.volume * 100) + "%";
   document.querySelectorAll(".mu").forEach((b) => b.classList.toggle("sel", b.dataset.mu === settings.music));
+  document.querySelectorAll(".mo").forEach((b) => b.classList.toggle("sel", (b.dataset.mo === "1") === settings.motion));
+  view.setMotion(settings.motion);
   $("musicVol").value = settings.musicVol; $("musicVolV").textContent = Math.round(settings.musicVol * 100) + "%";
   syncMusic();
   audio.setVolume(settings.volume);
@@ -523,6 +547,7 @@ $("modes").addEventListener("click", (e) => {
   if (!b) return;
   settings.mode = b.dataset.m; saveSettings(settings); renderSettings();
 });
+document.querySelectorAll(".mo").forEach((b) => b.addEventListener("click", () => { settings.motion = b.dataset.mo === "1"; saveSettings(settings); renderSettings(); }));
 document.querySelectorAll(".mu").forEach((b) => b.addEventListener("click", () => { settings.music = b.dataset.mu; saveSettings(settings); audio.resume(); renderSettings(); }));
 for (const id of ["dragRange", "dragDead", "dragCurve", "pedalH", "volume", "musicVol"]) {
   $(id).addEventListener("input", (e) => { settings[id] = +e.target.value; saveSettings(settings); renderSettings(); });

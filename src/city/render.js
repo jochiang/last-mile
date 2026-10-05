@@ -511,6 +511,59 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
   scene.add(skid);
 
   const camera = new THREE.PerspectiveCamera(66, 1, 0.3, 500);
+  scene.add(camera);   // so the speed streaks can ride along in camera space
+
+  // --- sense of speed (2026-10-04): a post pass (radial blur, chromatic fringe, vignette, a touch
+  // of barrel) whose strength follows speed, 3D streaks that rush past the camera, and a camera
+  // with weight. All of it off with motion effects off.
+  let motion = true;
+  const rt = new THREE.WebGLRenderTarget(4, 4, { samples: 4, type: THREE.HalfFloatType });
+  const post = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+    uniforms: { tScene: { value: rt.texture }, uBlur: { value: 0 }, uAberr: { value: 0 }, uVig: { value: 0 }, uBarrel: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.47) } },
+    vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+    fragmentShader: `
+      uniform sampler2D tScene; uniform float uBlur, uAberr, uVig, uBarrel; uniform vec2 uCenter; varying vec2 vUv;
+      void main() {
+        vec2 d = vUv - uCenter; float r = length(d * vec2(1.6, 1.0));
+        vec2 uv = uCenter + d * (1.0 - uBarrel * r * r);
+        // radial blur: samples back toward the centre, none in the middle, strongest at the edges
+        float amt = uBlur * smoothstep(0.12, 0.75, r);
+        vec3 col = vec3(0.0); float wsum = 0.0;
+        for (int i = 0; i < 8; i++) { float t = float(i) / 7.0; float w = 1.0 - 0.6 * t; col += texture2D(tScene, uv - d * amt * t).rgb * w; wsum += w; }
+        col /= wsum;
+        // colour fringing at the edges
+        vec2 off = d * uAberr * r;
+        col.r = mix(col.r, texture2D(tScene, uv + off).r, 0.7);
+        col.b = mix(col.b, texture2D(tScene, uv - off).b, 0.7);
+        col *= 1.0 - uVig * smoothstep(0.3, 0.9, r);
+        gl_FragColor = linearToOutputTexel(vec4(col, 1.0));
+      }`,
+    depthTest: false, depthWrite: false,
+  }));
+  const postScene = new THREE.Scene(); postScene.add(post);
+  const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  // streaks: thin lines in a tube around the view, rushing toward the camera
+  const NS = 70, sPos = new Float32Array(NS * 6), streaks = [];
+  for (let i = 0; i < NS; i++) streaks.push({ a: Math.random() * Math.PI * 2, r: 3 + Math.random() * 7, z: -5 - Math.random() * 60 });
+  const sGeo = new THREE.BufferGeometry(); sGeo.setAttribute("position", new THREE.BufferAttribute(sPos, 3));
+  const sMat = new THREE.LineBasicMaterial({ color: 0xcfe6ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  const streakLines = new THREE.LineSegments(sGeo, sMat); streakLines.frustumCulled = false;
+  camera.add(streakLines);
+  function updateStreaks(speed, dt) {
+    const k = motion ? Math.max(0, Math.min(1, (speed - 14) / 22)) : 0;
+    sMat.opacity = 0.32 * k;
+    if (k <= 0) return;
+    const len = 0.6 + speed * 0.07;
+    streaks.forEach((s, i) => {
+      s.z += speed * dt * 1.15;
+      if (s.z > 1) { s.z = -45 - Math.random() * 25; s.a = Math.random() * Math.PI * 2; s.r = 3 + Math.random() * 7; }
+      // keep them off the road ahead: mostly up and to the sides
+      const x = Math.cos(s.a) * s.r, y = Math.sin(s.a) * s.r * 0.7 + 1.5;
+      sPos.set([x, y, s.z, x, y, s.z - len], i * 6);
+    });
+    sGeo.attributes.position.needsUpdate = true;
+  }
+  function setMotion(on) { motion = on; }
   const cam = { x: 0, z: 0, yaw: 0, fov: 66, shake: 0, init: false, dist: 6.4 };
   // --- the garage: your car on a turntable while you shop (user, 2026-10-04)
   let garage = null;
@@ -584,6 +637,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
+    const pr = renderer.getPixelRatio();
+    rt.setSize(Math.max(4, Math.floor(w * pr)), Math.max(4, Math.floor(h * pr)));
   }
   // camera collision: only buildings matter at this height
   function cameraFree(x, z) {
@@ -679,7 +734,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     if (!cam.init) { cam.yaw = pose.h; cam.init = true; }
     let dy = pose.h - cam.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     cam.yaw += dy * Math.min(1, dt * (pose.reverse ? 2 : 6));
-    const want = 6.8 + (car.userData.camBack || 0) + pose.speed * 0.035;
+    cam.lag = (cam.lag || 0) + ((motion ? Math.max(-1.6, Math.min(1.4, pose.gLong * 1.1)) : 0) - (cam.lag || 0)) * Math.min(1, dt * 3.5);
+    const want = 6.8 + (car.userData.camBack || 0) + pose.speed * 0.035 + cam.lag;
     let tx = pose.x - Math.sin(cam.yaw) * want, tz = pose.z - Math.cos(cam.yaw) * want;
     let k = 1;
     for (let s = 1; s >= 0.25; s -= 0.125) {
@@ -695,14 +751,24 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     // high enough to see the road (and the GPS line) over the car, looking well up the street
     camera.position.set(tx + (Math.random() - 0.5) * sh, 3.3 + (car.userData.camUp || 0) + (Math.random() - 0.5) * sh, tz + (Math.random() - 0.5) * sh);
     camera.lookAt(pose.x + Math.sin(cam.yaw) * 12, 0.6, pose.z + Math.cos(cam.yaw) * 12);
-    const fov = (camera.aspect < 1 ? 86 : 64) + Math.max(0, pose.speed - 8) * 0.42;
+    // the view widens hard at the top end (eased in, so cruising stays calm)
+    const sp = Math.max(0, Math.min(1, (pose.speed - 8) / 34));
+    const fov = (camera.aspect < 1 ? 86 : 63) + (motion ? 21 * sp * sp * (3 - 2 * sp) : 14 * sp);
     cam.fov += (fov - cam.fov) * Math.min(1, dt * 3);
     camera.fov = cam.fov;
     camera.updateProjectionMatrix();
     dayFrame(dt, t, pose.x, pose.z, Math.sin(pose.h) * pose.speed, Math.cos(pose.h) * pose.speed);
     tickMods(car, dt);
     if (garage?.on) { renderGarage(dt); return; }
-    renderer.render(scene, camera);
+    updateStreaks(pose.speed, dt);
+    // the post pass, scaled by speed (fully off with motion effects off)
+    const mk = motion ? Math.max(0, Math.min(1, (pose.speed - 12) / 30)) : 0;   // motion-effect strength
+    if (mk > 0.001) {
+      const u = post.material.uniforms;
+      u.uBlur.value = 0.085 * mk * mk; u.uAberr.value = 0.008 * mk; u.uVig.value = 0.42 * mk; u.uBarrel.value = 0.045 * mk;
+      renderer.setRenderTarget(rt); renderer.render(scene, camera);
+      renderer.setRenderTarget(null); renderer.render(postScene, postCam);
+    } else renderer.render(scene, camera);
   }
 
   // --- traffic: instanced parts for every NPC car (bodies tinted per car), interpolated between ticks
@@ -906,5 +972,5 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     poles.instanceMatrix.needsUpdate = true;
     if (heads) heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
   }
-  return { resize, frame, setRoute, colorRoute, setUnderglow, setPlayerCar, setOffers, showGarage, garageDrag, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
+  return { resize, frame, setRoute, colorRoute, setUnderglow, setPlayerCar, setOffers, showGarage, garageDrag, setMotion, resetPoles, setDay, flashCamera, drawTraffic, snapCamera() { cam.init = false; }, camera, info: () => renderer.info.render };
 }

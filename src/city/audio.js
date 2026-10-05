@@ -102,6 +102,14 @@ export function createAudio() {
     slosh() { burst(0.35, { type: "bandpass", freq: 500, sweep: 1400, q: 2, gain: 0.3 }); },
     turn(pan) { tone(880, 0.09, { gain: 0.272, pan }); tone(1175, 0.14, { gain: 0.272, pan, at: 0.08 }); },
     shutter() { burst(0.04, { type: "highpass", freq: 4000, gain: 0.5 }); burst(0.06, { type: "bandpass", freq: 1500, q: 3, gain: 0.4, at: 0.07 }); tone(330, 0.35, { type: "square", gain: 0.12, at: 0.15 }); },
+    // passing something close at speed: a band-passed rush that sweeps down, on that side
+    whoosh(pan = 0, vol = 1) {
+      const t0 = ctx.currentTime, src = ctx.createBufferSource(); src.buffer = noise;
+      const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 1.4; f.frequency.setValueAtTime(2400, t0); f.frequency.exponentialRampToValueAtTime(500, t0 + 0.32);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.22 * vol, t0 + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.34);
+      const p = ctx.createStereoPanner(); p.pan.value = pan;
+      src.connect(f).connect(g).connect(p).connect(master); src.start(t0, Math.random()); src.stop(t0 + 0.4);
+    },
     horn(pan = 0, vol = 1) { for (const f of [370, 466]) tone(f, 0.38, { type: "sawtooth", gain: 0.07 * vol, pan, attack: 0.02 }); },
     beep() { tone(1050, 0.22, { type: "square", gain: 0.05, attack: 0.01 }); },
     reset() { tone(500, 0.2, { glide: 250, type: "triangle", gain: 0.15 }); },
