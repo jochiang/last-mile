@@ -73,8 +73,8 @@ export function payOff(run) {
 export function effects(run) {
   // the car first (its physics and what knocks and hard driving cost), then the mods on top
   const car = carOf(run), f = fx0(), p = { ...P, ...car.p };
-  if (car.fx.dmgMul) f.dmgMul *= car.fx.dmgMul;
-  if (car.fx.spillMul) f.spillMul *= car.fx.spillMul;
+  for (const k of ["dmgMul", "spillMul", "tipMul"]) if (car.fx[k]) f[k] *= car.fx[k];
+  for (const k of ["bullbar", "noFines", "rainGrip"]) if (car.fx[k] !== undefined) f[k] = car.fx[k];
   for (const id of run.mods) modById[id].apply(f, p);
   return { fx: f, p };
 }

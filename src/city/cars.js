@@ -7,6 +7,13 @@
 //   Liftback: the all-rounder, rear drive (the car the game was tuned on).
 //   Roadster: a tiny rear-drive convertible: sharp and grippy but slow, made of tissue paper, no roof
 //             (drinks slosh). The cheapest payments. Is always the answer.
+// Unlocked by paying a car off (2026-10-05, user: "Let's do more cars"); unlock: the car to pay off.
+//   Kei truck:   a tiny cab-over pickup. Narrow enough to thread traffic, slow, tippy; the bag rides in the
+//                bed. Unlocked by the hauler.
+//   Interceptor: an ex-police sedan from the auction. Big V8, heavy, soft, tough, push bar. Customers think
+//                you're a cop (fewer tips); speed cameras let it go. Unlocked by the liftback.
+//   Rally hatch: an all-wheel-drive turbo hatch. Fast, grippy, barely cares about rain; fragile and
+//                expensive. Unlocked by the roadster.
 
 export const CARS = {
   hauler: {
@@ -41,5 +48,38 @@ export const CARS = {
     stats: { speed: 2, grip: 5, toughness: 1, cargo: 2 },
     audio: { pitch: 1.3 },
   },
+  kei: {
+    name: "Kei Truck", kind: "Tiny cab-over pickup", unlock: "hauler",
+    blurb: "Narrow enough to thread traffic and slip down any alley. Slow, light and a bit tippy; the bag rides strapped in the bed. The cheapest payments.",
+    bill: (d) => Math.round(11 + 2.3 * (d - 1) + 0.36 * (d - 1) ** 2),
+    term: 12,
+    p: { m: 820, Iz: 900, a: 0.85, b: 1.05, hcg: 0.68, power: 64000, fMax: 6200, drag: 1.25, mu: 1.75, muOff: 1.5,
+      rearGrip: 1.2, steerMax: 0.7, ax: 0.95, r: 0.8 },
+    fx: { dmgMul: 1.25, spillMul: 1.1 },
+    stats: { speed: 1, grip: 3, toughness: 2, cargo: 4 },
+    audio: { pitch: 1.45 },
+  },
+  interceptor: {
+    name: "Interceptor", kind: "Ex-police sedan", unlock: "liftback",
+    blurb: "An auction special: big V8, push bar, soft springs, built like a vault. Customers think you're a cop (−15% tips). Speed cameras let it go.",
+    bill: (d) => Math.round(16 + 3.2 * (d - 1) + 0.48 * (d - 1) ** 2),
+    term: 14,
+    p: { m: 1800, Iz: 2900, a: 1.35, b: 1.55, hcg: 0.6, power: 270000, fMax: 14500, drag: 1.45, mu: 1.65, muOff: 1.4,
+      rearGrip: 1.06, steerMax: 0.56, ax: 1.45, r: 1.08 },
+    fx: { dmgMul: 0.7, tipMul: 0.85, bullbar: true, noFines: true },
+    stats: { speed: 5, grip: 2, toughness: 4, cargo: 3 },
+    audio: { pitch: 0.7 },
+  },
+  rally: {
+    name: "Rally Hatch", kind: "All-wheel-drive turbo hatch", unlock: "roadster",
+    blurb: "All four wheels pull: launches hard, corners flat and barely notices the rain. Fragile, thirsty and expensive.",
+    bill: (d) => Math.round(18 + 3.6 * (d - 1) + 0.54 * (d - 1) ** 2),
+    term: 14,
+    p: { m: 1300, Iz: 1800, a: 1.15, b: 1.3, hcg: 0.5, power: 225000, fMax: 15500, drag: 1.4, mu: 1.95, muOff: 1.75,
+      awd: 0.4, rearGrip: 1.15, steerMax: 0.62 },
+    fx: { dmgMul: 1.25, spillMul: 1.1, rainGrip: 0.93 },
+    stats: { speed: 4, grip: 5, toughness: 2, cargo: 2 },
+    audio: { pitch: 1.15 },
+  },
 };
-export const CAR_ORDER = ["hauler", "liftback", "roadster"];
+export const CAR_ORDER = ["hauler", "liftback", "roadster", "kei", "interceptor", "rally"];

@@ -103,7 +103,7 @@ export function decorate(g, id, mods, preview = null) {
       pivot.add(sp); g.userData.spinners.push(sp);
     }
   }
-  for (const h of a.hubs) { h.material = h.material.clone(); h.material.color.setHex(has("spinners") ? CHROME : 0xb8bcc4); }
+  for (const h of a.hubs) { h.material = h.material.clone(); h.userData.hex ??= h.material.color.getHex(); h.material.color.setHex(has("spinners") ? CHROME : h.userData.hex); }   // the car's own wheels (gold on the rally hatch) unless spinners
   g.userData.preview = preview;
 }
 

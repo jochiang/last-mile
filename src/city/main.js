@@ -484,16 +484,20 @@ function show(which) {
   if (g) $("menu").querySelector(".card").scrollTop = keep;
 }
 // pick a car: it sets the run's physics, toughness and payment curve (cars.js)
+// the newer cars unlock by paying another one off; ?cars=all unlocks them for testing (not saved)
+const ALL_CARS = new URLSearchParams(location.search).get("cars") === "all";
+const unlocked = (id) => ALL_CARS || !CARS[id].unlock || !!best.paid[CARS[id].unlock];
 function carsScreen() {
   const pips = (n) => `<span style="letter-spacing:2px;color:#ffd27a">${"●".repeat(n)}<span style="opacity:.25">${"●".repeat(5 - n)}</span></span>`;
+  const TAG = { hauler: "cargo", kei: "cargo", roadster: "silly", rally: "silly" };
   const cards = CAR_ORDER.map((id) => {
-    const c = CARS[id];
-    return `<div class="mod"><span class="tag ${id === "hauler" ? "cargo" : id === "roadster" ? "silly" : "perf"}">${c.kind.toUpperCase()}</span><b>${c.name}</b>
+    const c = CARS[id], open = unlocked(id);
+    return `<div class="mod"${open ? "" : ' style="opacity:.55"'}><span class="tag ${TAG[id] || "perf"}">${c.kind.toUpperCase()}</span><b>${open ? "" : "🔒 "}${c.name}</b>
       <span class="d">${c.blurb}</span>
       <span class="d">Speed ${pips(c.stats.speed)}<br>Grip ${pips(c.stats.grip)}<br>Toughness ${pips(c.stats.toughness)}<br>Cargo ${pips(c.stats.cargo)}</span>
       <span class="d">Loan: ${c.term} days. Payments $${c.bill(1)} → $${c.bill(Math.ceil(c.term / 2))} → $${c.bill(c.term)}</span>
       ${best.paid[id] ? `<span class="d" style="color:#9ee08a">✓ Paid off in ${best.paid[id]} days</span>` : ""}
-      <button data-act="pick" data-car="${id}">DRIVE THIS</button></div>`;
+      ${open ? `<button data-act="pick" data-car="${id}">DRIVE THIS</button>` : `<button disabled>Pay off the ${CARS[c.unlock].name} to unlock</button>`}</div>`;
   }).join("");
   return `<h2 class="big">PICK YOUR CAR</h2><div class="muted">It's yours for the whole run, payments and all.</div>
     <div class="shop" style="grid-template-columns:repeat(3,1fr)">${cards}</div>
@@ -529,6 +533,7 @@ $("screen").addEventListener("click", (e) => {
   if (!b) return;
   const act = b.dataset.act;
   if (act === "newrun") { show("cars"); return; }
+  if (act === "pick" && !unlocked(b.dataset.car)) return;
   if (act === "pick") { run = makeRun(undefined, b.dataset.car); rollOffers(run); persist(); newShift(); start(); return; }
   if (act === "continue") { lastDay = run.log[run.log.length - 1] || null; show(run.log.length ? "garage" : "title"); if (!run.log.length) { newShift(); start(); } return; }
   if (act === "start") { newShift(); start(); return; }

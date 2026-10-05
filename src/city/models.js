@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-const IDS = ["liftback", "hauler", "roadster", "sedan", "van"];
+const IDS = ["liftback", "hauler", "roadster", "kei", "interceptor", "rally", "sedan", "van"];
 const base = import.meta.env?.BASE_URL ?? "/";
 
 export function loadCarModels() {

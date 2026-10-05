@@ -6,13 +6,15 @@ import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 from carlib import *
 
-PAINT_FIXED = {"liftback": 0xf1f1ee, "hauler": 0xb9c3cc, "roadster": 0xd8262f}
+PAINT_FIXED = {"liftback": 0xf1f1ee, "hauler": 0xb9c3cc, "roadster": 0xd8262f, "kei": 0x8fc1d4, "interceptor": 0x16181d, "rally": 0x1f4fbf}
+HUB_FIXED = {"interceptor": 0x2a2c31, "rally": 0xd4a52a}   # black steelies; gold rally wheels
 TRIM, GLASS, TYRE, HUB, INTERIOR = 0x15161a, 0x1c2836, 0x1b1c20, 0xb8bcc4, 0x23252b
 
 
 def common(cid):
     paint = mat("paint", PAINT_FIXED.get(cid, 0xffffff))   # traffic: white, tinted per car in the game
-    return dict(paint=paint, trim=mat("trim", TRIM), glass=mat("glass", GLASS), tyre=mat("tyre", TYRE), hub=mat("hub", HUB),
+    return dict(paint=paint, trim=mat("trim", TRIM), glass=mat("glass", GLASS), tyre=mat("tyre", TYRE), hub=mat("hub", HUB_FIXED.get(cid, HUB)),
+                panel=mat("panel", 0xf2f2ee),
                 head=mat("lamp_head", 0xfff4d6, emit=True), tail=mat("lamp_tail", 0xff2a2a, emit=True), interior=mat("interior", INTERIOR),
                 bag=mat("bag", 0xff7a1a))
 
@@ -137,7 +139,91 @@ def van(M):
     wheels(M, 1.75, -1.7, 0.9, 0.4, 0.28)
 
 
-BUILD = {"liftback": liftback, "hauler": hauler, "roadster": roadster, "sedan": sedan, "van": van}
+def kei(M):
+    # a cab-over micro truck: a flat-faced cab over the front wheels, a drop-side bed behind
+    body = body_root()
+    W = 1.48
+    prism("cab", [(1.68, 0.4), (1.72, 0.95), (1.62, 1.72), (1.45, 1.86), (0.45, 1.86), (0.4, 1.7), (0.4, 0.4)], W, M["paint"], parent=body, bevel=0.06)
+    # the windscreen: most of the cab's face, raked back a touch; side windows
+    prism("windscreen", [(1.66, 1.0), (1.56, 1.66), (1.58, 1.66), (1.68, 1.0)], 1.3, M["glass"], bevel=0, parent=body)
+    for s_ in (-1, 1):
+        x = s_ * (W / 2 + 0.005)
+        quad(f"sidewin_{s_}", [(0.6, 1.05, x), (1.45, 1.05, x), (1.4, 1.68, x), (0.6, 1.68, x)][::(1 if s_ < 0 else -1)], M["glass"], body)
+        block(f"mirror_{s_}", 1.45, 1.58, 1.18, 1.34, s_ * (W / 2 + 0.02), s_ * (W / 2 + 0.16), M["trim"], parent=body) if s_ > 0 else block(f"mirror_{s_}", 1.45, 1.58, 1.18, 1.34, -(W / 2 + 0.16), -(W / 2 + 0.02), M["trim"], parent=body)
+        # the bed's drop sides
+        block(f"bedside_{s_}", -1.7, 0.36, 0.72, 1.08, s_ * W / 2 - 0.05, s_ * W / 2 + 0.0, M["paint"], parent=body) if s_ > 0 else block(f"bedside_{s_}", -1.7, 0.36, 0.72, 1.08, -W / 2, -W / 2 + 0.05, M["paint"], parent=body)
+    block("bedfloor", -1.7, 0.36, 0.42, 0.74, -W / 2, W / 2, M["trim"], parent=body)
+    block("tailgate", -1.74, -1.68, 0.5, 1.08, -W / 2, W / 2, M["paint"], parent=body)
+    block("rack", 0.3, 0.38, 1.08, 1.75, -0.66, 0.66, M["trim"], parent=body)   # the headache rack behind the cab
+    block("bumper_f", 1.66, 1.8, 0.3, 0.46, -0.72, 0.72, M["trim"], bevel=0.03, parent=body)
+    block("bumper_r", -1.8, -1.7, 0.3, 0.44, -0.7, 0.7, M["trim"], bevel=0.02, parent=body)
+    block("grille", 1.71, 1.73, 0.6, 0.86, -0.32, 0.32, M["trim"], parent=body)
+    lamps_pair(M, body, 1.735, 0.62, 0.84, 0.42, 0.66, "head")
+    for s_ in (-1, 1):
+        quad(f"lamp_tail_{s_}", [(-1.745, 0.62, s_ * 0.72), (-1.745, 0.62, s_ * 0.52), (-1.745, 0.9, s_ * 0.52), (-1.745, 0.9, s_ * 0.72)][::(1 if s_ > 0 else -1)], M["tail"], body)
+    block("bag", -1.25, -0.35, 0.74, 1.3, -0.45, 0.45, M["bag"], bevel=0.03, parent=body)   # strapped in the bed
+    for f in (-0.55, -1.05):
+        block(f"strap_{f}", f - 0.03, f + 0.03, 1.3, 1.32, -0.47, 0.47, M["trim"], parent=body)
+    arches(M, body, W, (1.05, -1.1), 0.29)
+    wheels(M, 1.05, -1.1, 0.62, 0.29, 0.18)
+
+
+def interceptor(M):
+    # a big ex-police sedan: black with white doors, push bar, a pillar spotlight, steel wheels
+    body = body_root()
+    W = 1.9
+    prism("tub", [(2.5, 0.28), (2.53, 0.6), (2.4, 0.8), (1.1, 0.93), (-1.75, 0.98), (-2.45, 0.94), (-2.52, 0.6), (-2.45, 0.28)], W, M["paint"], parent=body, bevel=0.07)
+    prism("glasshouse", [(1.1, 0.92), (0.35, 1.42), (-0.95, 1.43), (-1.6, 0.97)], 1.66, M["glass"], taper_from=1.0, taper=0.84, parent=body, bevel=0.04)
+    prism("roof", [(0.33, 1.42), (-0.96, 1.43), (-1.0, 1.48), (0.3, 1.47)], 1.38, M["paint"], parent=body, bevel=0.02)
+    for s_ in (-1, 1):
+        x0, x1 = (W / 2 - 0.0, W / 2 + 0.012) if s_ > 0 else (-W / 2 - 0.012, -W / 2)
+        block(f"doors_{s_}", -1.15, 0.95, 0.42, 0.9, x0, x1, M["panel"], parent=body)
+        block(f"door_seam_{s_}", -0.12, -0.09, 0.42, 0.9, x0 - 0.002 * s_, x1 + 0.004 * s_, M["trim"], parent=body)
+        block(f"mirror_{s_}", 0.85, 1.0, 1.0, 1.12, s_ * (W / 2 + 0.02), s_ * (W / 2 + 0.15), M["trim"], parent=body) if s_ > 0 else block(f"mirror_{s_}", 0.85, 1.0, 1.0, 1.12, -(W / 2 + 0.15), -(W / 2 + 0.02), M["trim"], parent=body)
+    block("spotlight", 0.95, 1.12, 1.02, 1.14, -(W / 2 + 0.12), -(W / 2 - 0.02), M["hub"], parent=body)
+    # the push bar: two uprights and two rails on the nose
+    for x in (-0.42, 0.42):
+        block(f"pb_up_{x}", 2.55, 2.65, 0.32, 0.98, x - 0.05, x + 0.05, M["trim"], parent=body)
+    for h in (0.5, 0.86):
+        block(f"pb_rail_{h}", 2.6, 2.7, h - 0.05, h + 0.05, -0.55, 0.55, M["trim"], parent=body)
+    block("bumper_f", 2.38, 2.6, 0.26, 0.44, -0.94, 0.94, M["trim"], bevel=0.04, parent=body)
+    block("bumper_r", -2.6, -2.38, 0.26, 0.44, -0.94, 0.94, M["trim"], bevel=0.04, parent=body)
+    lamps_pair(M, body, 2.55, 0.62, 0.74, 0.45, 0.86, "head")
+    lamps_pair(M, body, -2.535, 0.66, 0.8, 0.48, 0.88, "tail")
+    for x in (-0.5, 0.55):
+        block(f"antenna_{x}", -2.1, -2.07, 0.96, 1.5, x - 0.012, x + 0.012, M["trim"], parent=body)
+    block("bag", -0.8, 0.15, 1.47, 1.98, -0.5, 0.5, M["bag"], bevel=0.03, parent=body)
+    arches(M, body, W, (1.55, -1.5), 0.36)
+    wheels(M, 1.55, -1.5, 0.88, 0.36, 0.26)
+
+
+def rally(M):
+    # a boxy all-wheel-drive hatch: hood scoop, big wing, fog lamps, mud flaps, gold wheels
+    body = body_root()
+    W = 1.82
+    prism("tub", [(2.05, 0.3), (2.1, 0.6), (1.98, 0.78), (0.9, 0.92), (-1.85, 0.98), (-2.05, 0.9), (-2.08, 0.55), (-2.0, 0.3)], W, M["paint"], parent=body, bevel=0.07)
+    prism("glasshouse", [(0.88, 0.91), (0.15, 1.42), (-1.55, 1.44), (-1.95, 0.97)], 1.6, M["glass"], taper_from=1.0, taper=0.86, parent=body, bevel=0.04)
+    prism("roof", [(0.12, 1.42), (-1.56, 1.44), (-1.6, 1.49), (0.1, 1.47)], 1.42, M["paint"], parent=body, bevel=0.02)
+    prism("scoop", [(1.5, 0.86), (0.95, 0.93), (0.95, 1.03), (1.3, 0.97)], 0.62, M["trim"], parent=body, bevel=0.02)
+    prism("wing", [(-1.62, 1.6), (-2.05, 1.55), (-2.1, 1.62), (-1.66, 1.68)], 1.64, M["paint"], parent=body, bevel=0.01)
+    for x in (-0.55, 0.55):
+        block(f"wing_strut_{x}", -1.9, -1.8, 1.4, 1.6, x - 0.03, x + 0.03, M["trim"], parent=body)
+    for s_ in (-1, 1):
+        block(f"rocker_{s_}", -1.45, 1.45, 0.3, 0.42, s_ * W / 2 - 0.03, s_ * W / 2 + 0.03, M["trim"], parent=body)
+        block(f"mirror_{s_}", 0.7, 0.85, 0.98, 1.1, s_ * (W / 2 + 0.02), s_ * (W / 2 + 0.14), M["paint"], parent=body) if s_ > 0 else block(f"mirror_{s_}", 0.7, 0.85, 0.98, 1.1, -(W / 2 + 0.14), -(W / 2 + 0.02), M["paint"], parent=body)
+        block(f"flap_{s_}", -1.66, -1.62, 0.1, 0.46, s_ * 0.86 - 0.16, s_ * 0.86 + 0.16, M["tail"] if False else M["trim"], parent=body)
+        block(f"stripe_{s_}", -1.4, 1.6, 0.6, 0.66, s_ * W / 2 - 0.004, s_ * W / 2 + 0.004, M["panel"], parent=body)
+    block("bumper_f", 1.92, 2.18, 0.26, 0.48, -0.92, 0.92, M["trim"], bevel=0.04, parent=body)
+    block("bumper_r", -2.16, -1.95, 0.26, 0.46, -0.92, 0.92, M["trim"], bevel=0.04, parent=body)
+    lamps_pair(M, body, 2.11, 0.62, 0.72, 0.42, 0.82, "head")
+    lamps_pair(M, body, 2.185, 0.32, 0.42, 0.28, 0.5, "head")    # fog lamps in the bumper
+    lamps_pair(M, body, -2.09, 0.68, 0.8, 0.5, 0.85, "tail")
+    block("bag", -1.05, -0.15, 1.49, 1.98, -0.46, 0.46, M["bag"], bevel=0.03, parent=body)
+    arches(M, body, W, (1.32, -1.32), 0.36)
+    wheels(M, 1.32, -1.32, 0.84, 0.36, 0.27)
+
+
+BUILD = {"liftback": liftback, "hauler": hauler, "roadster": roadster, "sedan": sedan, "van": van, "kei": kei, "interceptor": interceptor, "rally": rally}
 
 if __name__ == "__main__":
     a = args()
@@ -147,5 +233,5 @@ if __name__ == "__main__":
     BUILD[cid](M)
     export(out)
     if len(a) > 2:
-        L = {"hauler": 5.0, "van": 5.4}.get(cid, 4.4)
+        L = {"hauler": 5.0, "van": 5.4, "interceptor": 5.2, "kei": 3.8}.get(cid, 4.4)
         preview(a[2], [((L * 0.95, 1.9, 4.6), (0, 0.7, 0)), ((-L * 0.95, 2.3, -4.2), (0, 0.8, 0))])

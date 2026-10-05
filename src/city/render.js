@@ -407,6 +407,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     car.add(glow);
     scene.add(car);
   }
+  // the chase camera per car: higher over the tall ones, closer behind the short ones
+  const CAM = { hauler: { camUp: 1.0, camBack: 1.2 }, roadster: { camBack: -0.4 }, kei: { camUp: 0.45, camBack: -0.3 }, interceptor: { camBack: 0.4 } };
   // a player car from the Blender model, wrapped like the procedural one (body leans, wheels steer and spin)
   function modelCar(id) {
     const m = playerFromModel(models[id]);
@@ -415,7 +417,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(m.wid + 0.5, m.len + 0.5).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false }));
     shadow.position.y = 0.06; g.add(shadow);
     g.userData = { body: m.body, wheels: m.wheels, len: m.len, wid: m.wid, model: true,
-      camUp: id === "hauler" ? 1.0 : 0, camBack: id === "hauler" ? 1.2 : id === "roadster" ? -0.4 : 0 };
+      ...(CAM[id] || {}) };
     return g;
   }
   setPlayerCar("liftback");

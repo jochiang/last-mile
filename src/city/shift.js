@@ -155,7 +155,7 @@ export function stepShift(sh, city, car) {
 function cameras(sh, car) {
   for (const c of sh.plan.cameras) {
     c.cool = Math.max(0, c.cool - DT);
-    if (c.cool <= 0 && Math.hypot(car.x - c.cx, car.z - c.cz) < SHIFT.camR && Math.hypot(car.vx, car.vz) > SHIFT.camLimit) {
+    if (!sh.fx.noFines && c.cool <= 0 && Math.hypot(car.x - c.cx, car.z - c.cz) < SHIFT.camR && Math.hypot(car.vx, car.vz) > SHIFT.camLimit) {
       c.cool = 4; sh.money -= SHIFT.camFine; sh.fines += SHIFT.camFine;
       sh.events.push({ type: "fine", cam: c, speed: Math.hypot(car.vx, car.vz) });
     }

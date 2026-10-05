@@ -93,7 +93,7 @@ export function applyPlan(city, plan, fx, p) {
   for (const e of city.edges) e.closed = false;
   for (const e of plan.closed) e.closed = true;
   city.setExtra(barriers(plan));
-  if (plan.conds.includes("rain")) { p.mu *= 0.82; p.muOff *= 0.85; fx.tipMul *= 1.15; }
+  if (plan.conds.includes("rain")) { const k = fx.rainGrip ?? 0.82; p.mu *= k; p.muOff *= Math.max(k, 0.85); fx.tipMul *= 1.15; }
   if (plan.conds.includes("rush")) { fx.timeMul *= 0.85; fx.tipMul *= 1.25; }
   for (const c of plan.cameras) c.cool = 0;
 }
