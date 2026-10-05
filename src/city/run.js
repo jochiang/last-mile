@@ -1,4 +1,5 @@
-// A run: one shift a day until you can't make the car payment or the app deactivates you.
+// A run: one shift a day until the car's paid off (the win: the last payment of its loan, or
+// paying off the rest early in the garage), or you can't make a payment, or the app deactivates you.
 // After each shift the day's bill comes out; then the garage: repairs, and a shop of four random
 // mods (each bought once, reroll for a little more each time). Damage and your rating carry over.
 
@@ -11,6 +12,7 @@ export const ECON = {
   repairPerPct: 0.5,                     // $ per percentage point of condition
   rerollBase: 4, rerollStep: 2,
   offers: 4,
+  payoffDiscount: 0.2,                   // paying the loan off early skips this much of what's left (the interest)
 };
 
 // fx: what mods change. p: the car's physics (a copy of P).
@@ -52,6 +54,20 @@ const R = (run) => (run.R ||= rng(run.seed * 31 + run.day * 7 + run.rerolls));
 export const carOf = (run) => CARS[run.car] || CARS.liftback;
 /** The car payment due after day d's shift: each car has its own curve. */
 export const billFor = (run, d) => carOf(run).bill(d);
+
+export const termOf = (run) => carOf(run).term || 14;
+/** Paying off the loan before today's shift: every payment left (today's included), less the interest. */
+export function payoffCost(run) {
+  let left = 0;
+  for (let d = run.day; d <= termOf(run); d++) left += billFor(run, d);
+  return Math.ceil(left * (1 - ECON.payoffDiscount));
+}
+export function payOff(run) {
+  const c = payoffCost(run);
+  if (c > run.cash || run.over) return false;
+  run.cash -= c; run.over = "paid"; run.paidEarly = true;
+  return true;
+}
 
 /** The car's physics and the game rules, with this run's mods applied. */
 export function effects(run) {
@@ -114,6 +130,7 @@ export function settleShift(run, shift, car) {
   run.log.push(day);
   if (low && run.probation) run.over = "deactivated";
   else if (run.cash < 0) run.over = "repo";
+  else if (run.day >= termOf(run)) run.over = "paid";   // the last payment: the car's yours
   run.probation = low;
   if (!run.over) { run.day++; run.rerolls = 0; rollOffers(run); }
   return day;
@@ -122,7 +139,7 @@ export function settleShift(run, shift, car) {
 /** A plain-text summary of a run, one line per day, for pasting into a balancing chat. */
 export function runReport(run) {
   const pct = (v) => `${Math.round(v * 100)}%`;
-  const head = `Last Mile run · car ${run.car || "liftback"} · seed ${run.seed} · ${run.over ? `ended day ${run.day} (${run.over})` : `day ${run.day}`} · earned $${run.earned.toFixed(0)} · mods: ${run.mods.join(", ") || "none"}`;
+  const head = `Last Mile run · car ${run.car || "liftback"} · seed ${run.seed} · ${run.over ? `ended day ${run.day} (${run.over === "paid" && run.paidEarly ? "paid off early" : run.over})` : `day ${run.day}`} · earned $${run.earned.toFixed(0)} · mods: ${run.mods.join(", ") || "none"}`;
   const rows = run.log.map((d) => [
     `d${d.day}`, (d.conds || []).join("+") || "-", `${d.traffic ?? "?"}cars`, `$${(d.earned ?? 0).toFixed(0)}/$${d.bill}`, `${d.jobs}jobs`,
     `late${d.late ?? "?"}`, `★${(d.stars ?? 0).toFixed(1)}`, `spill${pct(d.spilled ?? 0)}`, `tips$${(d.tips ?? 0).toFixed(0)}`,

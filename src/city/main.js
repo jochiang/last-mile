@@ -8,7 +8,7 @@ import { createAudio } from "./audio.js";
 import { createMusic, loadSamples } from "./music.js";
 import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
 import { createTraffic } from "./traffic.js";
-import { runReport, makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf } from "./run.js";
+import { runReport, makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf, termOf, payoffCost, payOff } from "./run.js";
 import { CARS, CAR_ORDER } from "./cars.js";
 import { dist, mph } from "./units.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
@@ -42,9 +42,9 @@ const view = createCityRenderer($("c"), city, { night: settings.night !== false 
 
 // the run in progress (saved between sessions) and the best run so far
 const RUN_KEY = "lm.run.v1", BEST_KEY = "lm.bestrun.v1";
-let run = null, best = { days: 0, earned: 0 };
+let run = null, best = { days: 0, earned: 0, paid: {} };   // paid: car id → fewest days to pay it off
 try { const s = localStorage.getItem(RUN_KEY); if (s) run = loadRun(s); } catch {}
-try { best = JSON.parse(localStorage.getItem(BEST_KEY)) || best; } catch {}
+try { best = { ...best, ...JSON.parse(localStorage.getItem(BEST_KEY)) }; } catch {}
 const persist = () => { try { run && !run.over ? localStorage.setItem(RUN_KEY, saveRun(run)) : localStorage.removeItem(RUN_KEY); } catch {} };
 
 let announced = "";
@@ -170,7 +170,7 @@ function whooshes(speed) {
 function hud() {
   const o = shift.order;
   $("clock").textContent = fmt(Math.max(0, SHIFT.length - shift.t));
-  $("money").textContent = run ? `$${shift.money.toFixed(2)} of $${billFor(run, run.day)} bill · day ${run.day}` : `$${shift.money.toFixed(2)}`;
+  $("money").textContent = run ? `$${shift.money.toFixed(2)} of $${billFor(run, run.day)} bill · day ${run.day}/${termOf(run)}` : `$${shift.money.toFixed(2)}`;
   $("money").style.color = run && run.cash + shift.money < billFor(run, run.day) ? "#ffb0a0" : "";
   $("rating").textContent = `★ ${rating(shift).toFixed(2)}${run && run.probation ? " · PROBATION" : ""}`;
   $("rating").style.color = rating(shift) < 4.3 ? "#ff8a7a" : "#ffe07a";
@@ -404,8 +404,8 @@ const condBar = (c) => `<div class="bar"><span style="width:${c * 100}%;backgrou
 
 function titleScreen() {
   return `<h1>LAST MILE <small>delivery roguelike prototype</small></h1>
-    <div class="muted">Pick up at the orange beacon, deliver to the green one: stop inside the circle. Tips drain while the clock runs; drinks spill if you throw the car around. One shift a day, then the car payment comes out, and it goes up every day. Miss it and the car's repossessed. Finish a day with your rating under 4.0 and you're on probation; do it twice running and you're deactivated. The blue line is the GPS; the alleys, the lot and the park are faster, and it doesn't know them.</div>
-    <div class="stats"><div><b>${best.days ? `${best.days} days` : "–"}</b><span>BEST RUN</span></div><div><b>${best.earned ? money(best.earned) : "–"}</b><span>MOST EARNED</span></div></div>
+    <div class="muted">Pick up at the orange beacon, deliver to the green one: stop inside the circle. Tips drain while the clock runs; drinks spill if you throw the car around. One shift a day, then the car payment comes out, and it goes up every day. Miss it and the car's repossessed; make the last one and the car is yours. Finish a day with your rating under 4.0 and you're on probation; do it twice running and you're deactivated. The blue line is the GPS; the alleys, the lot and the park are faster, and it doesn't know them.</div>
+    <div class="stats"><div><b>${best.days ? `${best.days} days` : "–"}</b><span>BEST RUN</span></div><div><b>${best.earned ? money(best.earned) : "–"}</b><span>MOST EARNED</span></div><div><b>${Object.keys(best.paid).length}/${CAR_ORDER.length}</b><span>CARS PAID OFF</span></div></div>
     <div class="row">${run && !run.over ? `<button class="go" data-act="continue">CONTINUE · DAY ${run.day}</button> <button class="sm" data-act="newrun">New run</button>` : `<button class="go" data-act="newrun">START RUN</button>`}</div>`;
 }
 
@@ -430,10 +430,14 @@ function garageScreen(last) {
     return `<div class="mod${previewMod === id ? " previewing" : ""}" data-act="preview" data-id="${id}"><span class="tag ${m.kind}">${m.kind === "perf" ? "PERFORMANCE" : m.kind === "cargo" ? "CARGO" : m.kind === "biz" ? "MONEY" : "STYLE"}</span><b>${m.name}</b><span class="d">${m.desc}</span>
       <button data-act="buy" data-id="${id}" ${m.price > run.cash ? "disabled" : ""}>${money(m.price)}</button>${previewMod === id ? '<span class="d" style="color:#ffd27a">Previewing on your car</span>' : ""}</div>`;
   }).join("") || `<div class="muted">Sold out.</div>`;
-  return `<h2 class="big">DAY ${run.day} · GARAGE <small style="font-size:14px;opacity:.7">${carOf(run).name}</small></h2>
+  const po = payoffCost(run), left = termOf(run) - run.day + 1;
+  return `<h2 class="big">DAY ${run.day} OF ${termOf(run)} · GARAGE <small style="font-size:14px;opacity:.7">${carOf(run).name}</small></h2>
     ${last ? `<div class="muted">Yesterday: ${last.jobs} deliveries, earned ${money(last.earned)}, car payment ${money(last.bill)}.</div>` : ""}
     ${run.probation ? `<div style="color:#ffb0a0;font-size:13px;margin:4px 0">⚠ PROBATION: your rating finished under 4.0. Finish today under it again and you're deactivated.</div>` : ""}
     <div class="stats"><div><b>${money(run.cash)}</b><span>CASH</span></div><div><b>${money(billFor(run, run.day))}</b><span>PAYMENT AFTER TODAY</span></div><div><b>★ ${r.toFixed(2)}</b><span>RATING</span></div></div>
+    <div class="repair"><b>Loan</b> <span class="muted">${left === 1 ? "Today's payment is the last one." : `${left} payments left, today's included.`}</span>
+      <button class="sm" data-act="payoff" ${po > run.cash ? "disabled" : ""}>Pay it off now ${money(po)}</button>
+      <span class="muted">${Math.round(ECON.payoffDiscount * 100)}% off for paying early: you skip the interest.</span></div>
     ${forecastHtml()}
     <div class="repair"><b>Car ${Math.round(run.cond * 100)}%</b> ${condBar(run.cond)}
       ${run.cond < 0.995 ? `<button class="sm" data-act="repair" data-to="${Math.min(1, run.cond + 0.25)}" ${fixTo(Math.min(1, run.cond + 0.25)) > run.cash ? "disabled" : ""}>Patch +25% ${money(fixTo(Math.min(1, run.cond + 0.25)))}</button>
@@ -448,11 +452,13 @@ function garageScreen(last) {
 }
 
 function overScreen() {
-  const why = run.over === "repo" ? ["REPOSSESSED", "You couldn't make the car payment. The tow truck didn't even honk."]
+  const won = run.over === "paid";
+  const why = won ? ["PAID OFF", `The ${carOf(run).name.toLowerCase()} is yours${run.paidEarly ? `, ${termOf(run) - run.day + 1} ${termOf(run) - run.day ? "days" : "day"} early` : ""}. The app still takes its 30%.`]
+    : run.over === "repo" ? ["REPOSSESSED", "You couldn't make the car payment. The tow truck didn't even honk."]
     : ["DEACTIVATED", "\"We've noticed your recent ratings don't meet our community standards.\""];
   const last = run.log[run.log.length - 1];
-  return `<h2 class="big">${why[0]}</h2><div class="muted">${why[1]}</div>
-    <div class="stats"><div><b>${run.day}</b><span>DAYS</span></div><div><b>${money(run.earned)}</b><span>EARNED</span></div><div><b>${run.mods.length}</b><span>MODS</span></div>${last ? `<div><b>${money(last.earned)}</b><span>LAST SHIFT</span></div>` : ""}</div>
+  return `<h2 class="big"${won ? ' style="color:#9ee08a"' : ""}>${why[0]}</h2><div class="muted">${why[1]}</div>
+    <div class="stats"><div><b>${daysOf(run)}</b><span>DAYS</span></div><div><b>${money(run.earned)}</b><span>EARNED</span></div><div><b>${run.mods.length}</b><span>MODS</span></div>${last ? `<div><b>${money(last.earned)}</b><span>LAST SHIFT</span></div>` : ""}</div>
     <details><summary>Last shift</summary><table><tr><th>Order</th><th>To</th><th>Earned</th><th>Tip</th><th>Stars</th><th>Spilled</th></tr>
     ${shift.log.map((l) => `<tr><td>${l.item}</td><td>${l.to}</td><td>$${l.earned.toFixed(2)}</td><td>$${l.tip.toFixed(2)}</td><td>${l.stars.toFixed(1)}</td><td>${Math.round((1 - l.quality) * 100)}%</td></tr>`).join("")}</table></details>
     <details open><summary>Run report (copy and paste it into the chat for balancing)</summary>
@@ -485,7 +491,8 @@ function carsScreen() {
     return `<div class="mod"><span class="tag ${id === "hauler" ? "cargo" : id === "roadster" ? "silly" : "perf"}">${c.kind.toUpperCase()}</span><b>${c.name}</b>
       <span class="d">${c.blurb}</span>
       <span class="d">Speed ${pips(c.stats.speed)}<br>Grip ${pips(c.stats.grip)}<br>Toughness ${pips(c.stats.toughness)}<br>Cargo ${pips(c.stats.cargo)}</span>
-      <span class="d">Payments: $${c.bill(1)} → $${c.bill(5)} → $${c.bill(10)} (days 1, 5, 10)</span>
+      <span class="d">Loan: ${c.term} days. Payments $${c.bill(1)} → $${c.bill(Math.ceil(c.term / 2))} → $${c.bill(c.term)}</span>
+      ${best.paid[id] ? `<span class="d" style="color:#9ee08a">✓ Paid off in ${best.paid[id]} days</span>` : ""}
       <button data-act="pick" data-car="${id}">DRIVE THIS</button></div>`;
   }).join("");
   return `<h2 class="big">PICK YOUR CAR</h2><div class="muted">It's yours for the whole run, payments and all.</div>
@@ -538,6 +545,7 @@ $("screen").addEventListener("click", (e) => {
   if (act === "buy" && buy(run, b.dataset.id)) { audio.sfx("buy"); previewMod = null; }
   if (act === "reroll" && reroll(run)) audio.sfx("tick", false);
   if (act === "repair" && repair(run, +b.dataset.to)) audio.sfx("repair");
+  if (act === "payoff" && payOff(run)) { audio.sfx("kaching"); recordBest(); persist(); show("over"); return; }
   persist();
   show("garage");
 });
@@ -590,12 +598,18 @@ function endShift() {
   running = false; inShift = false;
   if (!run) { show("title"); return; }
   lastDay = settleShift(run, shift, car);
-  if (run.day > best.days || run.earned > best.earned) {
-    best = { days: Math.max(best.days, run.over ? run.day : run.day - 1), earned: Math.max(best.earned, run.earned) };
-    try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch {}
-  }
+  recordBest();
+  if (run.over === "paid") audio.sfx("kaching");
   persist();
   show(run.over ? "over" : "garage");
+}
+// days driven (paying off early happens in the garage, before that day's shift)
+const daysOf = (run) => (run.over && !run.paidEarly ? run.day : run.day - 1);
+function recordBest() {
+  const days = daysOf(run);
+  best.days = Math.max(best.days, days); best.earned = Math.max(best.earned, run.earned);
+  if (run.over === "paid") best.paid[run.car] = Math.min(best.paid[run.car] || Infinity, days);
+  try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch {}
 }
 
 addEventListener("resize", () => { view.resize(); sizeLines(); });
