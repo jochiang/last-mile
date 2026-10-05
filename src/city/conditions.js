@@ -10,7 +10,7 @@ export const CONDITIONS = {
   surge: { name: "Surge zone", minDay: 2, weight: 0.5, good: true, desc: "One part of town pays 1.5× today (pink on the map)." },
   rain: { name: "Rain", minDay: 3, weight: 1, desc: "−18% grip. People tip more in the rain: +15% tips." },
   roadworks: { name: "Road works", minDay: 4, weight: 1, desc: "A few streets are barricaded. The GPS goes round; you might know better." },
-  cameras: { name: "Speed cameras", minDay: 5, weight: 1, desc: "A $6 fine for passing one over 60 km/h." },
+  cameras: { name: "Speed cameras", minDay: 5, weight: 1, desc: "A $6 fine for passing one over 35 mph." },
   rush: { name: "Rush hour", minDay: 6, weight: 1, desc: "Clocks 15% tighter, tips +25%, and 40% more traffic." },
 };
 

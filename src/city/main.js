@@ -9,6 +9,7 @@ import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
 import { createTraffic } from "./traffic.js";
 import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf } from "./run.js";
 import { CARS, CAR_ORDER } from "./cars.js";
+import { dist, mph } from "./units.js";
 import { createInput, loadSettings, saveSettings } from "../input.js";
 import { DT } from "../car.js";
 
@@ -99,7 +100,7 @@ function onShiftEvent(e) {
   if (e.type === "offers") { rt = null; toast(`${e.offers.length} NEW ORDERS`, "Drive to the one you want"); audio.sfx("ping"); view.setOffers(e.offers); }
   if (e.type === "pickup") { rt = null; toast(`PICKED UP · ${e.order.item}`, `→ ${e.order.cust.label}${e.order.surge ? " · SURGE ×1.5" : ""}`); audio.sfx("pickup"); view.setOffers([]); }
   if (e.type === "fine") {
-    toast("SPEED CAMERA −$6", `${Math.round(e.speed * 3.6)} km/h in a 60`);
+    toast("SPEED CAMERA −$6", `${mph(e.speed)} mph in a 35`);
     audio.sfx("shutter"); view.flashCamera(e.cam);
     $("flash").classList.add("on"); setTimeout(() => $("flash").classList.remove("on"), 60);
   }
@@ -128,7 +129,7 @@ function hud() {
   if (!o) {
     $("ophase").textContent = "CHOOSE AN ORDER"; $("ophase").className = "phase pickup";
     $("owhere").textContent = "Stop at any orange beacon";
-    $("offers").innerHTML = shift.offers.map((of) => `<div class="offer${of.inZone ? " here" : ""}"><span>${KIND_ICON[of.kind]} ${of.rest.sign}</span><span>${Math.round(of.dist / 10) * 10} m</span><b>$${of.est.toFixed(0)}${of.surge ? ' <i>SURGE</i>' : ""}</b></div>`).join("");
+    $("offers").innerHTML = shift.offers.map((of) => `<div class="offer${of.inZone ? " here" : ""}"><span>${KIND_ICON[of.kind]} ${of.rest.sign}</span><span>${dist(of.dist)}</span><b>$${of.est.toFixed(0)}${of.surge ? ' <i>SURGE</i>' : ""}</b></div>`).join("");
     const held = shift.offers.find((of) => of.hold > 0);
     $("stopping").firstElementChild.style.width = held ? `${Math.min(1, held.hold / SHIFT.stopHold) * 100}%` : "0%";
   }
@@ -150,7 +151,7 @@ function hud() {
     const nt = nextTurn(city, rt);
     $("turn").style.display = "flex";
     $("tarrow").textContent = { left: "↰", right: "↱", uturn: "↶", arrive: "◎" }[nt.dir];
-    $("tdist").textContent = nt.dist < 15 ? (nt.dir === "arrive" ? "HERE" : "NOW") : `${Math.round(nt.dist / 10) * 10} m`;
+    $("tdist").textContent = nt.dist < 15 ? (nt.dir === "arrive" ? "HERE" : "NOW") : dist(nt.dist);
     $("tonto").textContent = nt.dir === "arrive" ? (o ? o.cust.label : rt.dest?.name || "") : nt.onto ? `onto ${nt.onto}` : "";
     $("turn").classList.toggle("soon", nt.dist < 45);
     // a chime once per turn as it comes up, panned to the side you'll turn to
@@ -159,7 +160,7 @@ function hud() {
       if (key !== announced) { announced = key; audio.sfx("turn", nt.dir === "left" ? -0.8 : nt.dir === "right" ? 0.8 : 0); }
     }
   } else $("turn").style.display = "none";
-  const kmh = Math.abs(car.u) * 3.6;
+  const kmh = Math.abs(car.u) * 2.23694;   // shown in mph (the name's historical)
   $("kmh").firstChild.textContent = `${Math.round(kmh)} `;
   $("gear").textContent = car.reverse ? "REVERSE" : "";
   $("pbT").style.width = `${(inp.throttle || 0) * 100}%`;

@@ -7,6 +7,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { X, NB, CURB, LINE, PITCH } from "./map.js";
 import { loadCarModels, playerFromModel, partsFromModel, gameMaterial } from "./models.js";
 import { decorate, tickMods } from "./carmods.js";
+import { dist } from "./units.js";
 
 const C = {
   sky: 0xbfe3ff, asphalt: 0x4b4e56, sidewalk: 0xb8b3a8, curb: 0xd8d4cb, dash: 0xf2d24b, white: 0xf4f4f4,
@@ -399,7 +400,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
       g.fillStyle = "#fff"; g.font = "800 30px system-ui, sans-serif"; g.textAlign = "center";
       g.fillText(`${{ food: "🍕", drink: "🥤", cake: "🎂" }[of.kind]} $${of.est.toFixed(0)}${of.surge ? " SURGE" : ""}`, 128, 42);
       g.font = "600 22px system-ui, sans-serif"; g.fillStyle = "#cfe0ff";
-      g.fillText(`${of.rest.sign} · ${Math.round(of.dist / 10) * 10} m`, 128, 76);
+      g.fillText(`${of.rest.sign} · ${dist(of.dist)}`, 128, 76);
       t.sp.material.map.needsUpdate = true;
     });
   }
@@ -793,18 +794,20 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
         dayGroup.add(cone);
       }
     }
-    // speed cameras: a post, a yellow box, a "60" plate; they flash when they catch you
+    // speed cameras: a post, a yellow box, a US "SPEED LIMIT 35" plate; they flash when they catch you
     for (const c of plan.cameras) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 3.2, 6), new THREE.MeshLambertMaterial({ color: 0x555a63 }));
       post.position.set(c.x, 1.6, c.z);
       const boxm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.7), new THREE.MeshBasicMaterial({ color: 0xffd23a }));
       boxm.position.set(c.x, 3.4, c.z);
-      const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+      const cv = document.createElement("canvas"); cv.width = 64; cv.height = 80;
       const g = cv.getContext("2d");
-      g.fillStyle = "#fff"; g.beginPath(); g.arc(32, 32, 30, 0, 7); g.fill(); g.strokeStyle = "#e33"; g.lineWidth = 7; g.stroke();
-      g.fillStyle = "#111"; g.font = "900 28px system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("60", 32, 34);
+      g.fillStyle = "#fff"; g.fillRect(2, 2, 60, 76); g.strokeStyle = "#111"; g.lineWidth = 3; g.strokeRect(6, 6, 52, 68);
+      g.fillStyle = "#111"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.font = "800 11px system-ui"; g.fillText("SPEED", 32, 18); g.fillText("LIMIT", 32, 30);
+      g.font = "900 30px system-ui"; g.fillText("35", 32, 56);
       const plate = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv) }));
-      plate.position.set(c.x, 2.4, c.z); plate.scale.set(0.9, 0.9, 1);
+      plate.position.set(c.x, 2.4, c.z); plate.scale.set(0.8, 1.0, 1);
       const flash = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
       flash.position.set(c.x, 3.4, c.z);
       dayGroup.add(post, boxm, plate, flash);

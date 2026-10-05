@@ -15,7 +15,7 @@ export const SHIFT = {
   base: 3, perKm: 9, tipMax: 7,
   spillG: 0.9, spillRate: 0.12, spillHit: 0.02,     // drinks: g over this, per second; and per m/s of impact
   cakeG: 0.7, cakeRate: 0.22, cakeHit: 0.06,        // cakes: hate braking/accelerating hard (lengthwise g) and knocks
-  surgeMul: 1.5, camLimit: 60 / 3.6, camFine: 6, camR: 10,
+  surgeMul: 1.5, camLimit: 35 / 2.23694, camFine: 6, camR: 10,   // cameras: 35 mph
   deactivate: 4.0, memory: 20,   // the rating: average of the last `memory` deliveries
 };
 
