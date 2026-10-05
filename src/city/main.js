@@ -172,7 +172,7 @@ function hud() {
   $("clock").textContent = fmt(Math.max(0, SHIFT.length - shift.t));
   $("money").textContent = run ? `$${shift.money.toFixed(2)} of $${billFor(run, run.day)} bill · day ${run.day}/${termOf(run)}` : `$${shift.money.toFixed(2)}`;
   $("money").style.color = run && run.cash + shift.money < billFor(run, run.day) ? "#ffb0a0" : "";
-  $("rating").textContent = `★ ${rating(shift).toFixed(2)}${run && run.probation ? " · PROBATION" : ""}`;
+  $("rating").textContent = `★ ${rating(shift).toFixed(2)}${run && run.probation ? (rating(shift) < SHIFT.deactivate ? " · PROBATION: finish above 4.00" : " · PROBATION: above 4.00 ✓") : ""}`;
   $("rating").style.color = rating(shift) < 4.3 ? "#ff8a7a" : "#ffe07a";
   $("offers").style.display = o ? "none" : "block";
   $("orderbody").style.display = o ? "block" : "none";

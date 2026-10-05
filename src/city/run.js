@@ -114,7 +114,7 @@ export function settleShift(run, shift, car) {
   const bill = billFor(run, run.day);
   run.cash += shift.money; run.earned += shift.money;
   run.cond = car.cond;
-  run.ratings = shift.ratings.slice(-SHIFT.memory);
+  run.ratings = [avgRating(shift.ratings)];   // carry the rating itself into tomorrow
   run.cash -= bill;
   // the rating is judged at the end of the day: under the line is probation, twice running is the end
   const r = avgRating(run.ratings), low = r < SHIFT.deactivate;

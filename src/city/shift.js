@@ -18,7 +18,10 @@ export const SHIFT = {
   spillG: 0.9, spillRate: 0.12, spillHit: 0.02,     // drinks: g over this, per second; and per m/s of impact
   cakeG: 0.7, cakeRate: 0.22, cakeHit: 0.06,        // cakes and catering: hate braking/accelerating hard (lengthwise g) and knocks
   surgeMul: 1.5, camLimit: 35 / 2.23694, camFine: 6, camR: 10,   // cameras: 35 mph
-  deactivate: 4.0, memory: 20,   // the rating: average of the last `memory` deliveries
+  // the rating moves this share of the way toward each delivery's stars (2026-10-05: it was the average
+  // of the last 20, so a new 5 only pushed out an old 5 and a bad day couldn't be undone before
+  // probation ran out; user: "Pretty hard to recover from a couple of bad drink deliveries")
+  deactivate: 4.0, ratingAlpha: 0.1,
   // the late game (2026-10-04): stacked orders (one pickup, two drop-offs) and premium orders
   stackFrom: 3, stackChance: 0.2, premiumFrom: 5, premiumChance: 0.25, premiumPay: 3, premiumTip: 1.8, premiumTime: 1.25,
   loyaltyStep: 0.5, loyaltyMax: 4,   // the loyalty sticker: $0.50 more per on-time delivery in a row, up to $4
@@ -32,7 +35,8 @@ const PREMIUM = [
 function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); }
 
 // fx: the run's mods (run.js effects().fx); ratings carry over from earlier shifts
-export const HISTORY = () => [...Array(16).fill(5), 4, 4, 4, 4];   // a new driver's 4.8, as if from earlier gigs
+export const HISTORY = () => [4.8];   // a new driver's 4.8, as if from earlier gigs
+// ratings: [the rating carried in, then each delivery's stars]
 const FX0 = { tipMul: 1, timeMul: 1, spillMul: 1, starBonus: 0, lateForgive: false, loyalty: false, stackMul: 1, stackPay: 1, offers: 3 };
 // plan: the day's conditions.js dayPlan (null = a plain day-3-ish shift with everything on)
 export function makeShift(city, seed = 1, { ratings = HISTORY(), fx = null, plan = null } = {}) {
@@ -43,7 +47,7 @@ export function makeShift(city, seed = 1, { ratings = HISTORY(), fx = null, plan
   };
 }
 
-export const avgRating = (rs) => { const r = rs.slice(-SHIFT.memory); return r.reduce((a, b) => a + b, 0) / r.length; };
+export const avgRating = (rs) => rs.reduce((r, s, i) => (i ? r + SHIFT.ratingAlpha * (s - r) : s), 0);
 export const rating = (sh) => avgRating(sh.ratings);
 
 // --- offers
