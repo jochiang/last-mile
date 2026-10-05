@@ -434,9 +434,16 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     ring.position.y = 0.07;
     const fill = new THREE.Mesh(new THREE.CircleGeometry(6, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.18, depthWrite: false }));
     fill.position.y = 0.06;
-    g.add(col, ring, fill);
+    // premium only: a white-hot core inside a fatter column, a second ring (user, 2026-10-05: premium
+    // gold read as the regular orange)
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 70, 10, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xfff6d0, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: false, blending: THREE.AdditiveBlending }));
+    core.position.y = 35; core.visible = false;
+    const ring2 = new THREE.Mesh(new THREE.RingGeometry(6.8, 7.4, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xfff6d0, transparent: true, opacity: 0.9, depthWrite: false }));
+    ring2.position.y = 0.075; ring2.visible = false;
+    g.add(col, ring, fill, core, ring2);
     g.visible = false;
-    g.userData = { col, ring, fill };
+    g.userData = { col, ring, fill, core, ring2 };
     scene.add(g);
     return g;
   }
@@ -481,11 +488,11 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
       if (!of) return;
       const g = t.cv.getContext("2d");
       g.clearRect(0, 0, 256, 96);
-      g.fillStyle = of.premium ? "rgba(120,92,10,.88)" : of.surge ? "rgba(120,20,95,.85)" : "rgba(16,21,28,.82)";
+      g.fillStyle = of.premium ? "rgba(255,210,58,.95)" : of.surge ? "rgba(120,20,95,.85)" : "rgba(16,21,28,.82)";
       g.beginPath(); g.roundRect(4, 4, 248, 88, 16); g.fill();
-      g.fillStyle = "#fff"; g.font = "800 30px system-ui, sans-serif"; g.textAlign = "center";
-      g.fillText(`${{ food: "🍕", drink: "🥤", cake: "🎂", catering: "🍱", lunch: "🥪" }[of.kind] || "📦"}${of.stacked ? "×2" : ""} $${of.est.toFixed(0)}${of.premium ? " PREMIUM" : of.surge ? " SURGE" : ""}`, 128, 42);
-      g.font = "600 22px system-ui, sans-serif"; g.fillStyle = "#cfe0ff";
+      g.fillStyle = of.premium ? "#1a1406" : "#fff"; g.font = "800 30px system-ui, sans-serif"; g.textAlign = "center";
+      g.fillText(`${of.premium ? "★ " : ""}${{ food: "🍕", drink: "🥤", cake: "🎂", catering: "🍱", lunch: "🥪" }[of.kind] || "📦"}${of.stacked ? "×2" : ""} $${of.est.toFixed(0)}${of.premium ? " ★" : of.surge ? " SURGE" : ""}`, 128, 42);
+      g.font = "600 22px system-ui, sans-serif"; g.fillStyle = of.premium ? "#3a2c08" : "#cfe0ff";
       g.fillText(`${of.rest.sign} · ${dist(of.dist)}`, 128, 76);
       t.sp.material.map.needsUpdate = true;
     });
@@ -783,7 +790,17 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
       b.visible = !!p;
       if (!p) continue;
       b.position.set(p.x, 0, p.z);
-      if (!dropBeacons.includes(b)) { const hex = b.userData.premium ? 0xffd23a : b.userData.surge ? 0xff3bd0 : 0xffa31a; b.userData.col.material.color.setHex(hex); b.userData.ring.material.color.setHex(hex); b.userData.fill.material.color.setHex(hex); }
+      if (!dropBeacons.includes(b)) {
+        const prem = b.userData.premium, hex = prem ? 0xffd23a : b.userData.surge ? 0xff3bd0 : 0xffa31a;
+        b.userData.col.material.color.setHex(hex); b.userData.ring.material.color.setHex(hex); b.userData.fill.material.color.setHex(hex);
+        b.userData.col.scale.set(prem ? 1.8 : 1, 1, prem ? 1.8 : 1);
+        b.userData.core.visible = b.userData.ring2.visible = prem;
+        if (prem) {
+          b.userData.ring2.scale.setScalar(1 + 0.08 * Math.sin(t * 7));
+          // gold sparks rising off it
+          if (Math.random() < dt * 14) { const a = Math.random() * 6.3, r = 2 + Math.random() * 3; emit(p.x + Math.cos(a) * r, 0.5, p.z + Math.sin(a) * r, 0, 4 + Math.random() * 4, 0, Math.random() < 0.5 ? 0xffd23a : 0xfff6d0, 1.6, -1); }
+        }
+      }
       const pulse = 0.5 + 0.5 * Math.sin(t * 5);
       b.userData.ring.scale.setScalar(1 + pulse * 0.06);
       b.userData.fill.material.opacity = p.inZone ? 0.45 : 0.15 + pulse * 0.08;

@@ -179,7 +179,7 @@ function hud() {
   if (!o) {
     $("ophase").textContent = "CHOOSE AN ORDER"; $("ophase").className = "phase pickup";
     $("owhere").textContent = "Stop at any orange beacon";
-    $("offers").innerHTML = shift.offers.map((of) => `<div class="offer${of.inZone ? " here" : ""}"><span>${KIND_ICON[of.kind] || "📦"} ${of.rest.sign}${of.stacked ? " ×2" : ""}${of.premium ? ' <i class="prem">PREMIUM</i>' : ""}</span><span>${dist(of.dist)}</span><b>$${of.est.toFixed(0)}${of.surge ? ' <i>SURGE</i>' : ""}</b></div>`).join("");
+    $("offers").innerHTML = shift.offers.map((of) => `<div class="offer${of.inZone ? " here" : ""}${of.premium ? " premium" : ""}"><span>${of.premium ? "★ " : ""}${KIND_ICON[of.kind] || "📦"} ${of.rest.sign}${of.stacked ? " ×2" : ""}${of.premium ? ' <i class="prem">PREMIUM</i>' : ""}</span><span>${dist(of.dist)}</span><b>$${of.est.toFixed(0)}${of.surge ? ' <i>SURGE</i>' : ""}</b></div>`).join("");
     const held = shift.offers.find((of) => of.hold > 0);
     $("stopping").firstElementChild.style.width = held ? `${Math.min(1, held.hold / SHIFT.stopHold) * 100}%` : "0%";
   }
@@ -307,14 +307,18 @@ function drawMap() {
   // the destination: on the map if it's in range, otherwise pinned to the rim pointing at it
   const o = shift.order;
   const marks = o ? o.drops.map((d, i) => [d, i]).filter(([d]) => !d.done).map(([d, i]) => [d.cust, DROP_CSS[i]])
-    : shift.offers.map((of) => [of.rest, of.premium ? "#ffd23a" : of.surge ? "#ff3bd0" : "#ffa31a"]);
-  for (const [p, colr] of marks) {
+    : shift.offers.map((of) => [of.rest, of.premium ? "#ffd23a" : of.surge ? "#ff3bd0" : "#ffa31a", of.premium]);
+  for (const [p, colr, star] of marks) {
     const dx = p.x - car.x, dz = p.z - car.z, ang = car.h - Math.PI;
     let sx = (dx * Math.cos(ang) - dz * Math.sin(ang)) * mscale, sz = (dx * Math.sin(ang) + dz * Math.cos(ang)) * mscale;
     const r = Math.hypot(sx, sz), lim = c - 10;
     if (r > lim) { sx *= lim / r; sz *= lim / r; }
     mctx.fillStyle = colr;
-    mctx.beginPath(); mctx.arc(c + sx, c + sz, 9, 0, 7); mctx.fill();
+    mctx.beginPath();
+    // premium: a big gold star, not a dot
+    if (star) for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? 6.5 : 15; mctx.lineTo(c + sx + Math.cos(a) * rr, c + sz + Math.sin(a) * rr); }
+    else mctx.arc(c + sx, c + sz, 9, 0, 7);
+    mctx.closePath(); mctx.fill();
     mctx.strokeStyle = "#fff"; mctx.lineWidth = 3; mctx.stroke();
   }
   // the car: an arrow at the centre, always pointing up
