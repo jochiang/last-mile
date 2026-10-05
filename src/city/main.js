@@ -5,7 +5,7 @@ import { makeCityCar, stepCityCar, resetCityCar } from "./world.js";
 import { makeShift, stepShift, rating, avgRating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
 import { createAudio } from "./audio.js";
-import { createMusic } from "./music.js";
+import { createMusic, loadSamples } from "./music.js";
 import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
 import { createTraffic } from "./traffic.js";
 import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf } from "./run.js";
@@ -29,7 +29,10 @@ let music = null, musicTrack = null;
 // the score starts with the first START (browsers need a tap before audio); switching tracks restarts it
 function syncMusic() {
   if (!audio.ready) return;
-  if (!music) music = createMusic(audio.ctx, audio.out);
+  if (!music) {
+    music = createMusic(audio.ctx, audio.out);
+    loadSamples(audio.ctx, `${import.meta.env.BASE_URL}audio/drums/`).then((sm) => music.setSamples(sm));
+  }
   if (settings.music !== musicTrack) { musicTrack = settings.music; settings.music === "off" ? music.stop() : music.play(settings.music, settings.musicVol); }
   music.setVolume(settings.musicVol);
 }
