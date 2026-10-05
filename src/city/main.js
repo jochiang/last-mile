@@ -493,6 +493,9 @@ async function start() {
     try { await document.documentElement.requestFullscreen({ navigationUI: "hide" }); await screen.orientation?.lock?.("landscape"); } catch {}
   }
   $("menu").classList.add("hidden");
+  // out of the garage: back to the street camera and the HUD
+  $("menu").classList.remove("garage"); document.body.classList.remove("garage-on");
+  view.showGarage(false); curScreen = "drive";
   input.release();
   audio.resume(); audio.setVolume(settings.volume);
   inShift = true; running = true; last = performance.now(); acc = 0;
