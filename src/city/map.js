@@ -52,6 +52,18 @@ export const RESTAURANTS = [
 
 const PALETTE = [0xd9c7a3, 0xc98e6b, 0xa9b8c4, 0xe3d9c6, 0x9fae8f, 0xc4a4a4, 0xb7a58f, 0x8f9fb2, 0xe0b98a, 0xa7a7b7];
 
+// Districts, one per quarter (2026-10-05, user: more visual identity "so people can orientate"; the
+// parks were their only landmarks). Each has its own heights, colours, window light, street light
+// and a landmark you can see over the roofs (render.js).
+export const DISTRICTS = {
+  old: { name: "Old Town", floors: [3, 5], palette: [0xc98e6b, 0xd9c7a3, 0xe3d9c6, 0xb7a58f, 0xc4a4a4, 0xe0b98a] },
+  downtown: { name: "Downtown", floors: [7, 11], palette: [0x8f9fb2, 0xa9b8c4, 0x6f8196, 0xb8c4cf, 0x5d6b7c, 0x9aa7b5] },
+  warehouse: { name: "The Yards", floors: [2, 3], palette: [0x9a5a44, 0x8a4f3a, 0x7a6a5a, 0xa0705a, 0x6e5446, 0x8f7a64] },
+  nightlife: { name: "Neon Row", floors: [3, 6], palette: [0x5a4a6a, 0x6a5470, 0x4a4a5e, 0x7a6080, 0x5e5470, 0x6c5a7c] },
+};
+/** Which district a point is in: the quarters either side of 4th Ave and Maple St. */
+export const districtAt = (x, z) => (z < 0 ? (x < 0 ? "old" : "downtown") : x < 0 ? "warehouse" : "nightlife");
+
 function rng(seed) {
   return () => {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
@@ -140,7 +152,8 @@ export function buildCity(seed = 7) {
   const solid = (x0, z0, x1, z1, extra = {}) => { const b = { x0, z0, x1, z1, ...extra }; boxes.push(b); return b; };
   let curParts = [[]];   // the block being filled
   const building = (x0, z0, x1, z1) => {
-    const floors = 3 + Math.floor(R() * 10), color = PALETTE[Math.floor(R() * PALETTE.length)];
+    const dk = districtAt((x0 + x1) / 2, (z0 + z1) / 2), D = DISTRICTS[dk];
+    const floors = D.floors[0] + Math.floor(R() * (D.floors[1] + 1)), color = D.palette[Math.floor(R() * D.palette.length)];
     let out = null;
     for (const part of curParts) {
       if (!part.length) { out = solid(x0, z0, x1, z1, { kind: "building", h: floors * 3.2, floors, color }); buildings.push(out); continue; }
@@ -273,6 +286,31 @@ export function buildCity(seed = 7) {
     }
   }
 
+  // --- landmarks, one or two per district, tall and lit so they read over the roofs at night
+  for (const b of buildings) b.district = districtAt((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2);
+  const roofIn = (r, c, pick) => buildings.filter((b) => !b.poly && b.x0 >= X(c) && b.x1 <= X(c + 1) && b.z0 >= X(r) && b.z1 <= X(r + 1)).reduce((a, b) => (!a || pick(b) > pick(a) ? b : a), null);
+  const onRoof = (kind, b) => ({ kind, x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2, y: b.h + 0.5, w: Math.min(b.x1 - b.x0, b.z1 - b.z0) });
+  const landmarks = [];
+  // Old Town: a lighthouse out on the Harbor Curve lawn, and a clock tower at the top of the park
+  const lh = { kind: "lighthouse", x: X(0) - 3, z: X(0) - 3, y: 0 };
+  landmarks.push(lh);
+  const ct = { kind: "clocktower", x: X(1) + 33, z: X(1) + 12, y: 0 };
+  landmarks.push(ct);
+  for (const L of [lh, ct]) {
+    for (let k = trees.length - 1; k >= 0; k--) if (Math.hypot(trees[k].x - L.x, trees[k].z - L.z) < 9) { circles.splice(circles.indexOf(trees[k]), 1); trees.splice(k, 1); }
+    circles.push({ x: L.x, z: L.z, r: L.kind === "lighthouse" ? 3.6 : 3.2, kind: "landmark" });
+  }
+  // Downtown: a radio mast on its tallest tower
+  const tallest = buildings.filter((b) => !b.poly && b.district === "downtown" && b.x1 < X(NB) && b.z0 > X(0)).reduce((a, b) => (!a || b.h > a.h ? b : a), null);
+  if (tallest) landmarks.push(onRoof("radiomast", tallest));
+  // The Yards: a water tower on a big low roof
+  const yard = roofIn(4, 1, (b) => (b.x1 - b.x0) * (b.z1 - b.z0)) || roofIn(3, 0, (b) => (b.x1 - b.x0) * (b.z1 - b.z0));
+  if (yard) landmarks.push(onRoof("watertower", yard));
+  // Neon Row: a giant spinning donut on a roof, and a billboard on the Mill Bend lawn
+  const nr = roofIn(3, 5, (b) => (b.x1 - b.x0) * (b.z1 - b.z0)) || roofIn(4, 3, (b) => (b.x1 - b.x0) * (b.z1 - b.z0));
+  if (nr) landmarks.push(onRoof("donut", nr));
+  landmarks.push({ kind: "billboard", x: X(NB) + 2, z: X(NB) + 2, y: 0, h: -Math.PI * 0.75 });
+
   // --- places: restaurant pickups and customer addresses, each a stopping zone in the near lane
   const facePoint = (r, c, face) => {
     const mx = (X(c) + X(c + 1)) / 2, mz = (X(r) + X(r + 1)) / 2;
@@ -364,7 +402,7 @@ export function buildCity(seed = 7) {
   };
 
   return {
-    nodes, edges, removed, deadNodes, buildings, boxes, circles, trees, poles, parkedCars, dumpsters, parks, lots, alleys, walks, lawns, signals,
+    nodes, edges, removed, deadNodes, buildings, boxes, circles, trees, poles, parkedCars, dumpsters, parks, lots, alleys, walks, lawns, signals, landmarks,
     restaurants, addresses, surfaceAt, near, setExtra, bounds: { x0: S0, z0: S0, x1: S0 + SN, z1: S0 + SN }, inner: { x0: E0, x1: E1 },
     start: { x: X(3) + LANE, z: X(4) - 14, h: Math.PI },   // 4th Ave, heading north
   };

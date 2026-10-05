@@ -4,7 +4,7 @@
 
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { X, NB, CURB, LINE, PITCH, BEND_R } from "./map.js";
+import { X, NB, CURB, LINE, PITCH, BEND_R, districtAt } from "./map.js";
 import { pointAt } from "./edges.js";
 import { signalState } from "./signals.js";
 import { loadCarModels, playerFromModel, partsFromModel, gameMaterial } from "./models.js";
@@ -188,7 +188,15 @@ function buildWindows(city) {
   const pos = [], col = [];
   let seed = 23;
   const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const LIT = [0xffd27a, 0xffe6b0, 0xbfe0ff, 0xffb86b], DARK = 0x161c2a;
+  // each district's light: warm Old Town, cool white Downtown towers, a few orange lamps in the Yards,
+  // pink and cyan on Neon Row (which also gets neon strips over its shopfronts)
+  const LITS = {
+    old: { c: [0xffd27a, 0xffe6b0, 0xffb86b], base: 0.18, busy: 0.4 },
+    downtown: { c: [0xdfeaff, 0xbfe0ff, 0xf4f8ff, 0x9fd0ff], base: 0.32, busy: 0.45 },
+    warehouse: { c: [0xffa040, 0xffb86b], base: 0.05, busy: 0.18 },
+    nightlife: { c: [0xff7ad6, 0x7ae8ff, 0xc58cff, 0xffd27a], base: 0.22, busy: 0.4 },
+  };
+  const NEON = [0xff4ac8, 0x4ae8ff, 0xc56cff, 0xffe04a], DARK = 0x161c2a;
   const quad = (ax, az, bx, bz, y0, y1, hex) => {
     pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y0, az, bx, y1, bz, ax, y1, az);
     tmpC.setHex(hex);
@@ -209,13 +217,15 @@ function buildWindows(city) {
       }).filter(([ax, az, bx, bz]) => Math.hypot(bx - ax, bz - az) > 2);
     }
     const busy = R();   // some buildings are mostly lit, some mostly dark
+    const D = LITS[bd.district] || LITS.old, LIT = D.c;
+    if (bd.district === "nightlife") for (const [ax, az, bx, bz] of faces) if (R() < 0.7) quad(ax, az, bx, bz, 3.3, 3.75, NEON[Math.floor(R() * NEON.length)]);
     for (let f = 0; f < bd.floors; f++) {
       const y0 = f * 3.2 + 1.0, y1 = y0 + 1.3;
       for (const [ax, az, bx, bz] of faces) {
         const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.round(L / 4.5));
         for (let k = 0; k < n; k++) {
           const f0 = k / n + 0.06 / n, f1 = (k + 1) / n - 0.06 / n;
-          const lit = R() < 0.18 + busy * 0.4 || (f === 0 && R() < 0.5);
+          const lit = R() < D.base + busy * D.busy || (f === 0 && R() < 0.5);
           quad(ax + (bx - ax) * f0, az + (bz - az) * f0, ax + (bx - ax) * f1, az + (bz - az) * f1, y0, y1, lit ? LIT[Math.floor(R() * LIT.length)] : DARK);
         }
       }
@@ -273,6 +283,95 @@ function nightEnv(renderer, workshop = false) {
   const tex = pm.fromScene(s, 0.01).texture;
   pm.dispose();
   return tex;
+}
+
+// --- landmarks (map.js places them): tall, lit, each its own colour, so you can tell where you are
+// from across town. Returns the group and a tick(t, dt) for the moving parts.
+function textTexture(lines, { w = 512, h = 192, bg = "#14101c", fg = "#ff5ac8", glow = "#ff5ac8", font = 900 } = {}) {
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const g = cv.getContext("2d");
+  g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  g.textAlign = "center"; g.textBaseline = "middle"; g.shadowColor = glow; g.shadowBlur = 22; g.fillStyle = fg;
+  lines.forEach(([text, size], i) => { g.font = `${font} ${size}px system-ui, sans-serif`; g.fillText(text, w / 2, (h * (i + 0.5)) / lines.length); });
+  return new THREE.CanvasTexture(cv);
+}
+function buildLandmarks(city) {
+  const group = new THREE.Group(), P = [], ticks = [];
+  const add = { blending: THREE.AdditiveBlending, transparent: true, depthWrite: false };
+  // the lit parts ignore the fog: you see a landmark's lights across town, like real ones through haze
+  const basic = (hex, extra = {}) => new THREE.MeshBasicMaterial({ color: hex, fog: false, ...extra });
+  const mesh = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); group.add(m); return m; };
+  for (const L of city.landmarks) {
+    const { x, z, y } = L;
+    if (L.kind === "lighthouse") {
+      // red and white bands, a gallery, the lamp room, and two beams sweeping round
+      for (let k = 0; k < 4; k++) P.push(colored(new THREE.CylinderGeometry(3.6 - (k + 1) * 0.3, 3.6 - k * 0.3, 6, 14).translate(x, 3 + k * 6, z), k % 2 ? 0xc8322a : 0xf2f0ea));
+      P.push(colored(new THREE.CylinderGeometry(3.1, 3.1, 0.5, 14).translate(x, 24.25, z), 0x2a2d33));
+      mesh(new THREE.CylinderGeometry(1.8, 1.8, 3, 12), basic(0xfff2c0), x, 26, z);
+      P.push(colored(new THREE.ConeGeometry(2.3, 2.2, 12).translate(x, 28.6, z), 0x7a2420));
+      const beams = new THREE.Group(); beams.position.set(x, 26, z); group.add(beams);
+      for (const sgn of [1, -1]) {
+        const b = new THREE.Mesh(new THREE.ConeGeometry(6, 90, 16, 1, true).translate(0, -45, 0).rotateZ((sgn * Math.PI) / 2), basic(0xfff2c0, { ...add, opacity: 0.16, side: THREE.DoubleSide }));
+        beams.add(b);
+      }
+      ticks.push((t) => { beams.rotation.y = t * 0.9; });
+    } else if (L.kind === "clocktower") {
+      // a stone shaft, a clock stage with four lit faces, a pyramid roof
+      P.push(box(x - 2.5, 0, z - 2.5, x + 2.5, 21, z + 2.5, 0xc9b89a, 0x8a7a64));
+      P.push(box(x - 3, 21, z - 3, x + 3, 27, z + 3, 0xb8a684));
+      P.push(colored(new THREE.ConeGeometry(4.4, 7, 4).rotateY(Math.PI / 4).translate(x, 30.5, z), 0x5a3a3a));
+      P.push(colored(new THREE.CylinderGeometry(0.12, 0.12, 3, 5).translate(x, 35.5, z), 0x30343c));
+      const face = basic(0xfff4d6), hand = basic(0x1c1d22);
+      for (let k = 0; k < 4; k++) {
+        const a = (k * Math.PI) / 2, fx = Math.sin(a), fz = Math.cos(a);
+        const f = mesh(new THREE.CircleGeometry(2.2, 20), face, x + fx * 3.03, 24, z + fz * 3.03); f.rotation.y = a;
+        // hands at ten past ten
+        const h1 = mesh(new THREE.BoxGeometry(0.22, 1.4, 0.05).translate(0, 0.6, 0), hand, x + fx * 3.08, 24, z + fz * 3.08); h1.rotation.set(0, a, -1.05);
+        const h2 = mesh(new THREE.BoxGeometry(0.18, 1.9, 0.05).translate(0, 0.85, 0), hand, x + fx * 3.09, 24, z + fz * 3.09); h2.rotation.set(0, a, 1.05);
+      }
+    } else if (L.kind === "radiomast") {
+      // a tapering mast on the tallest tower downtown, red lamps blinking up its length
+      P.push(colored(new THREE.CylinderGeometry(0.25, 1.1, 30, 4).translate(x, y + 15, z), 0xc9ced6));
+      for (const k of [0, 1, 2, 3]) P.push(colored(new THREE.BoxGeometry(4 - k * 0.7, 0.2, 0.2).translate(x, y + 6 + k * 7, z), 0x9aa0a8));
+      const lamps = [];
+      for (const h of [10, 20, 30.5]) {
+        lamps.push(mesh(new THREE.SphereGeometry(0.55, 8, 6), basic(0xff2a1a), x, y + h, z));
+        lamps.push(mesh(new THREE.SphereGeometry(2.4, 10, 8), basic(0xff2a1a, { ...add, opacity: 0.3 }), x, y + h, z));
+      }
+      ticks.push((t) => { const on = t % 1.4 < 0.7; for (const l of lamps) l.visible = on; });
+    } else if (L.kind === "watertower") {
+      // four legs, a wooden tank with its name lit around it, a red beacon on the cap
+      const T = 8;   // up on tall legs, to clear the roofs around it
+      for (const [dx, dz] of [[-2.2, -2.2], [2.2, -2.2], [-2.2, 2.2], [2.2, 2.2]]) P.push(box(x + dx - 0.2, y, z + dz - 0.2, x + dx + 0.2, y + 7 + T, z + dz + 0.2, 0x3a3530));
+      P.push(colored(new THREE.CylinderGeometry(3.4, 3.4, 5.5, 16).translate(x, y + T + 9.75, z), 0x8a6244));
+      P.push(colored(new THREE.ConeGeometry(3.8, 2.6, 16).translate(x, y + T + 13.8, z), 0x5a4030));
+      const tex = textTexture([["THE YARDS  ·  THE YARDS  ·", 84]], { w: 1024, h: 128, bg: "#2a1a10", fg: "#ffb44a", glow: "#ff8a1a" });
+      tex.wrapS = THREE.RepeatWrapping;
+      mesh(new THREE.CylinderGeometry(3.46, 3.46, 1.6, 24, 1, true), new THREE.MeshBasicMaterial({ map: tex, fog: false }), x, y + T + 10, z);
+      mesh(new THREE.SphereGeometry(0.4, 8, 6), basic(0xff2a1a), x, y + T + 15.3, z);
+      mesh(new THREE.SphereGeometry(1.8, 8, 6), basic(0xff8a1a, { ...add, opacity: 0.25 }), x, y + T + 15.3, z);
+    } else if (L.kind === "donut") {
+      // a giant pink donut on a pole, turning slowly, glowing
+      P.push(colored(new THREE.CylinderGeometry(0.4, 0.5, 7, 8).translate(x, y + 3.5, z), 0x2a2d33));
+      const d = new THREE.Group(); d.position.set(x, y + 13, z); group.add(d);
+      d.add(new THREE.Mesh(new THREE.TorusGeometry(5, 1.9, 10, 28), basic(0xff5ac8)));
+      d.add(new THREE.Mesh(new THREE.TorusGeometry(5, 2.9, 10, 28), basic(0xff5ac8, { ...add, opacity: 0.22 })));
+      for (let k = 0; k < 14; k++) {   // sprinkles
+        const a = (k / 14) * Math.PI * 2, s2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 1.1), basic([0x5ae8ff, 0xfff27a, 0xffffff][k % 3]));
+        s2.position.set(Math.cos(a) * 5, Math.sin(a) * 5, 1.75); s2.rotation.z = a * 3; d.add(s2);
+      }
+      ticks.push((t) => { d.rotation.y = t * 0.6; });
+    } else if (L.kind === "billboard") {
+      // a lit billboard on the Mill Bend lawn, facing back into town
+      const fx = Math.sin(L.h), fz = Math.cos(L.h), rx = fz, rz = -fx;
+      for (const sgn of [-1, 1]) P.push(box(x + rx * sgn * 5 - 0.3, 0, z + rz * sgn * 5 - 0.3, x + rx * sgn * 5 + 0.3, 9, z + rz * sgn * 5 + 0.3, 0x30343c));
+      const b = mesh(new THREE.PlaneGeometry(16, 6.5), new THREE.MeshBasicMaterial({ fog: false, map: textTexture([["LAST MILE", 96], ["tip your driver", 56]], { w: 640, h: 260, bg: "#120c1e", fg: "#5ae8ff", glow: "#5ae8ff" }) }), x, 12.4, z);
+      b.rotation.y = L.h;
+      const back = mesh(new THREE.BoxGeometry(16.4, 6.9, 0.3), basic(0x1c1d22), x - fx * 0.2, 12.4, z - fz * 0.2); back.rotation.y = L.h;
+    }
+  }
+  if (P.length) group.add(new THREE.Mesh(mergeGeometries(P), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
+  return { group, tick: (t) => { for (const f of ticks) f(t); } };
 }
 
 function signMesh(r) {
@@ -377,6 +476,8 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
   scene.add(sun);
   scene.add(buildStatic(city, night));
   if (night) scene.add(buildWindows(city));
+  const landmarks = buildLandmarks(city);
+  scene.add(landmarks.group);
   for (const r of city.restaurants) scene.add(signMesh(r));
   const add = { blending: THREE.AdditiveBlending, transparent: true, depthWrite: false };
 
@@ -437,12 +538,23 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
   }
   // at night: glowing lamp heads, and a pool of light on the road under each
   let heads = null, pools = null;
+  // each district's street light: warm Old Town, cool white Downtown, sodium orange in the Yards, pink
+  // on Neon Row (lamp heads, the painted pools, and the real lights near the car)
+  const STREET = {
+    old: { head: 0xfff0c0, pool: 0xa08048, light: 0xffb866 },
+    downtown: { head: 0xf0f6ff, pool: 0x8a96aa, light: 0xd8e6ff },
+    warehouse: { head: 0xffb050, pool: 0xb0682a, light: 0xff9a40 },
+    nightlife: { head: 0xffb0ec, pool: 0xa0508e, light: 0xff8ad0 },
+  };
+  for (const p of city.poles) p.district = districtAt(p.x, p.z);
   if (night) {
     const headGeo = new THREE.BoxGeometry(0.42, 0.2, 0.62).translate(0, 5.2, 1.25);
-    heads = new THREE.InstancedMesh(headGeo, new THREE.MeshBasicMaterial({ color: 0xfff0c0 }), city.poles.length);
+    heads = new THREE.InstancedMesh(headGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), city.poles.length);
     pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(13, 13).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xa08048, ...add, polygonOffset: true, polygonOffsetFactor: -1 }), city.poles.length);
+      new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xffffff, ...add, polygonOffset: true, polygonOffsetFactor: -1 }), city.poles.length);
+    const tc = new THREE.Color();
     city.poles.forEach((p, i) => {
+      heads.setColorAt(i, tc.setHex(STREET[p.district].head)); pools.setColorAt(i, tc.setHex(STREET[p.district].pool));
       m4.compose(v3.set(p.x, 0, p.z), q4.setFromEuler(e3.set(0, p.yaw, 0)), s3);
       heads.setMatrixAt(i, m4);
       // the pool sits under the lamp's head, out over the road
@@ -465,14 +577,14 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     for (const p of city.poles) {
       if (p.broken || p.fall > 0) continue;
       const lx = p.x + Math.sin(p.yaw) * 1.25, lz = p.z + Math.cos(p.yaw) * 1.25, d = Math.hypot(lx - x, lz - z);
-      if (d < LAMP_R) lampNear.push({ lx, lz, d });
+      if (d < LAMP_R) lampNear.push({ lx, lz, d, c: STREET[p.district].light });
     }
     lampNear.sort((a, b) => a.d - b.d);
     lampLights.forEach((l, k) => {
       const n = lampNear[k];
       if (!n) { l.intensity = 0; return; }
       const f = Math.min(1, (LAMP_R - n.d) / 10);
-      l.position.set(n.lx, 4.9, n.lz);
+      l.position.set(n.lx, 4.9, n.lz); l.color.setHex(n.c);
       l.intensity = 32 * f * f;
     });
   }
@@ -944,6 +1056,7 @@ export function createCityRenderer(canvas, city, { night = true } = {}) {
     dayFrame(dt, t, pose.x, pose.z, Math.sin(pose.h) * pose.speed, Math.cos(pose.h) * pose.speed);
     if (LAMPS) updateLamps(pose.x + Math.sin(pose.h) * 8, pose.z + Math.cos(pose.h) * 8);
     tickMods(car, dt);
+    landmarks.tick(t);
     if (garage?.on) { renderGarage(dt); return; }
     updateStreaks(pose.speed, dt);
     // the post pass, scaled by speed (fully off with motion effects off)

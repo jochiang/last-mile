@@ -286,6 +286,15 @@ const base = document.createElement("canvas"); base.width = Math.ceil((B.x1 - B.
     g.fillStyle = "#" + r.color.toString(16).padStart(6, "0");
     g.beginPath(); g.arc(bx(r.x), bz(r.z), 6, 0, 7); g.fill();
   }
+  // landmarks: small icons in their colours (a ring for the donut)
+  const LM = { lighthouse: "#fff2c0", clocktower: "#e8d8b0", radiomast: "#ff4a3a", watertower: "#ffa040", donut: "#ff5ac8", billboard: "#5ae8ff" };
+  for (const l of city.landmarks) {
+    g.fillStyle = g.strokeStyle = LM[l.kind] || "#fff"; g.lineWidth = 3;
+    g.beginPath();
+    if (l.kind === "donut") { g.arc(bx(l.x), bz(l.z), 6, 0, 7); g.stroke(); }
+    else if (l.kind === "billboard") g.fillRect(bx(l.x) - 7, bz(l.z) - 3, 14, 6);
+    else { g.moveTo(bx(l.x), bz(l.z) - 8); g.lineTo(bx(l.x) + 6, bz(l.z) + 5); g.lineTo(bx(l.x) - 6, bz(l.z) + 5); g.closePath(); g.fill(); }
+  }
 }
 function drawMap() {
   const c = MS / 2;
