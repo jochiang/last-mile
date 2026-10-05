@@ -57,7 +57,7 @@
   #kmh { font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
   #kmh small { font-size: 12px; opacity: .8; }
   #gear { font-size: 11px; color: #ffd27a; height: 13px; }
-  .pm.sel { border-color: var(--hot); background: rgba(255,122,26,.25); }
+  .mu.sel, .pm.sel { border-color: var(--hot); background: rgba(255,122,26,.25); }
   #pedhud { display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 4px; font-size: 10px; letter-spacing: .05em; }
   #pedhud .pb { width: 46px; height: 7px; background: rgba(0,0,0,.35); border-radius: 4px; overflow: hidden; }
   #pedhud .pb span { display: block; height: 100%; width: 0; }
@@ -191,6 +191,8 @@
         Pedal height <input type="range" id="pedalH" min="80" max="260" step="10"> <span id="pedalHV"></span></div>
       <div class="row">Pedal <button class="sm pm" data-pm="float">Floating</button> <button class="sm pm" data-pm="fixed">Fixed strip</button></div>
       <div class="row">Volume <input type="range" id="volume" min="0" max="1" step="0.05"> <span id="volumeV"></span></div>
+      <div class="row">Music <button class="sm mu" data-mu="synthwave">Synthwave</button> <button class="sm mu" data-mu="street">Street</button> <button class="sm mu" data-mu="off">Off</button>
+        <input type="range" id="musicVol" min="0" max="1" step="0.05"> <span id="musicVolV"></span></div>
       <div class="muted">Keys: A/D steer, W gas, S brake (hold S when stopped to reverse), R unstick, Esc menu. <a href="track.html" style="color:#ffd27a">Test track</a></div>
     </details>
   </div>

@@ -29,8 +29,8 @@ export function createAudio() {
     const body = ctx.createBiquadFilter(); body.type = "peaking"; body.frequency.value = 160; body.Q.value = 0.9; body.gain.value = 7;
     const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = 1.6;
     const shaper = ctx.createWaveShaper();
-    const curve = new Float32Array(512);
-    for (let i = 0; i < 512; i++) { const x = (i / 256) - 1; curve[i] = Math.tanh(x * 3.2); }
+    const curve = new Float32Array(513);   // odd length: zero in, zero out
+    for (let i = 0; i < 513; i++) { const x = (i / 256) - 1; curve[i] = Math.tanh(x * 3.2); }
     shaper.curve = curve;
     const pre = ctx.createGain(); pre.gain.value = 0.5;
     const oscs = [];
@@ -112,6 +112,8 @@ export function createAudio() {
   return {
     init,
     get ready() { return !!ctx; },
+    get ctx() { return ctx; },
+    get out() { return master; },
     level() {
       if (!meter) return 0;
       const a = new Float32Array(meter.fftSize); meter.getFloatTimeDomainData(a);

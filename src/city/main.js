@@ -5,6 +5,7 @@ import { makeCityCar, stepCityCar, resetCityCar } from "./world.js";
 import { makeShift, stepShift, rating, avgRating, SHIFT } from "./shift.js";
 import { createCityRenderer } from "./render.js";
 import { createAudio } from "./audio.js";
+import { createMusic } from "./music.js";
 import { dayPlan, applyPlan, barriers, CONDITIONS } from "./conditions.js";
 import { createTraffic } from "./traffic.js";
 import { makeRun, effects, settleShift, repairCost, repair, rerollCost, reroll, buy, modById, rollOffers, saveRun, loadRun, ECON, billFor, carOf } from "./run.js";
@@ -22,6 +23,16 @@ if (!settings.pedalMode) settings.pedalMode = "float";
 const input = createInput($("zone"), { drift: $("drift"), brake: $("brake"), pedal: $("pedal"), pedzone: $("pedzone") }, settings);
 const audio = createAudio();
 if (settings.volume === undefined) settings.volume = 0.8;
+if (!settings.music) settings.music = "synthwave";
+if (settings.musicVol === undefined) settings.musicVol = 0.7;
+let music = null, musicTrack = null;
+// the score starts with the first START (browsers need a tap before audio); switching tracks restarts it
+function syncMusic() {
+  if (!audio.ready) return;
+  if (!music) music = createMusic(audio.ctx, audio.out);
+  if (settings.music !== musicTrack) { musicTrack = settings.music; settings.music === "off" ? music.stop() : music.play(settings.music, settings.musicVol); }
+  music.setVolume(settings.musicVol);
+}
 const traffic = createTraffic(city, 7);
 const view = createCityRenderer($("c"), city, { night: settings.night !== false });
 
@@ -318,6 +329,7 @@ function loop(now) {
     if (e.type === "pole") audio.sfx("clang");
     if (e.type === "reset") audio.sfx("reset");
   }
+  music?.setMix(Math.min(1, pose.speed / 28));   // hats and arps push harder with speed
   audio.update({ running, speed: pose.speed, u: car.u, throttle: inp.throttle || 0, brake: inp.brake || 0, slipF: car.slipF, slipR: car.slipR, off: car.off, reverse: car.reverse, cond: car.cond }, dt);
   if (running && o) { audio.clock(o.left); if (o.kind === "drink") audio.spill(o.spill); }
   view.drawTraffic(traffic.cars, running ? a : 1);
@@ -398,6 +410,7 @@ function overScreen() {
 let curScreen = "title", lastDay = null, previewMod = null;
 function show(which) {
   curScreen = which;
+  music?.setMuffled(true);   // menus and the garage: the music through the wall
   // the garage: the shop becomes a panel on the right, your car on a turntable on the left
   const g = which === "garage" && !!run;
   $("menu").classList.toggle("garage", g);
@@ -443,6 +456,9 @@ function renderSettings() {
   $("pedal").classList.toggle("float", float);
   if (!float) { $("pedal").style.left = ""; $("pedal").style.top = ""; $("pedal").style.opacity = 1; }
   $("volume").value = settings.volume; $("volumeV").textContent = Math.round(settings.volume * 100) + "%";
+  document.querySelectorAll(".mu").forEach((b) => b.classList.toggle("sel", b.dataset.mu === settings.music));
+  $("musicVol").value = settings.musicVol; $("musicVolV").textContent = Math.round(settings.musicVol * 100) + "%";
+  syncMusic();
   audio.setVolume(settings.volume);
 }
 $("screen").addEventListener("click", (e) => {
@@ -469,7 +485,8 @@ $("modes").addEventListener("click", (e) => {
   if (!b) return;
   settings.mode = b.dataset.m; saveSettings(settings); renderSettings();
 });
-for (const id of ["dragRange", "dragDead", "dragCurve", "pedalH", "volume"]) {
+document.querySelectorAll(".mu").forEach((b) => b.addEventListener("click", () => { settings.music = b.dataset.mu; saveSettings(settings); audio.resume(); renderSettings(); }));
+for (const id of ["dragRange", "dragDead", "dragCurve", "pedalH", "volume", "musicVol"]) {
   $(id).addEventListener("input", (e) => { settings[id] = +e.target.value; saveSettings(settings); renderSettings(); });
 }
 $("pause").addEventListener("click", pause);
@@ -499,6 +516,7 @@ async function start() {
   view.showGarage(false); curScreen = "drive";
   input.release();
   audio.resume(); audio.setVolume(settings.volume);
+  syncMusic(); music?.setMuffled(false);
   inShift = true; running = true; last = performance.now(); acc = 0;
 }
 function pause() {
