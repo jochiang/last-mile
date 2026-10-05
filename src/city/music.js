@@ -210,6 +210,7 @@ const NIGHT_SHIFT = {
 
 const LANE_SPLIT = {
   name: "Lane Split", bpm: 94, duck: 0.3, swing: 0.12,
+  levels: { drums: 0.58, music: 1.0 },   // user: the street drums sat hot against the melody
   // (user: the first street kit's samples were "odd": finger snaps for claps, a slowed-down tom)
   kits: {
     A: { kick: "kick_808", snare: "snare_zome", clap: null, hat: "hat_zild", ohat: "hat_open", tom: null },
@@ -287,7 +288,10 @@ export function createMusic(ctx, dest, samples = {}) {
     nextBar += beat * 4; barIdx++;
   }
   let kitChoice = "A";
-  const start = (id) => { track = TRACKS[id]; K.setTempo(track.bpm); K.setKit(track.kit || track.kits[kitChoice], track.duck); };
+  const start = (id) => {
+    track = TRACKS[id]; K.setTempo(track.bpm); K.setKit(track.kit || track.kits[kitChoice], track.duck);
+    drums.gain.value = track.levels?.drums ?? 0.9; music.gain.value = track.levels?.music ?? 0.85;
+  };
   return {
     bus, muffle,
     play(id, vol = 1) {
